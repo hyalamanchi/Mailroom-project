@@ -403,8 +403,16 @@ class DailyPipelineOrchestrator:
                 
                 # Get SSN and name for matching
                 ssn_last_4 = extracted_data.get('ssn_last_4', '')
-                last_name = extracted_data.get('last_name', '')
-                first_name = extracted_data.get('first_name', '')
+                taxpayer_name = extracted_data.get('taxpayer_name', '')
+                
+                # Split taxpayer name into first and last name for Logiqs search
+                if taxpayer_name:
+                    name_parts = taxpayer_name.strip().split()
+                    last_name = name_parts[-1] if name_parts else ''
+                    first_name = name_parts[0] if len(name_parts) > 1 else ''
+                else:
+                    last_name = ''
+                    first_name = ''
                 
                 if not ssn_last_4 or not last_name:
                     print("   ⚠️  Missing SSN or name - marking as unmatched")
