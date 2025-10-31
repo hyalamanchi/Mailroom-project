@@ -107,6 +107,14 @@ class HundredPercentAccuracyExtractor:
         # Letter type patterns - ENHANCED for 800 DPI clarity
         # Priority order: Exact match > Context match > Flexible match
         self.letter_patterns = [
+            r'(?:Notice|Letter|Form)\s+(CP\s*2000)\b',  # CP2000 with context (highest priority)
+            r'\b(CP\s*2000)\b',                          # Exact CP2000 match
+            r'\b(CP\s*3219)\b',                          # CP3219
+            r'\b(CP\s*504)\b',                           # CP504
+            r'\b(LT\s*11)\b',                            # LT11
+            r'\b(LT\s*1058)\b',                          # LT1058
+            r'\b(CP\s*\d{4})\b',                         # Any CP code (fallback)
+            r'\b(LT\s*\d{4})\b',                         # Any LT code (fallback)
             r'(CP-\d{4})',                               # Hyphenated format
         ]
         
