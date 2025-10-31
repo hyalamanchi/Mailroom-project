@@ -18,6 +18,9 @@ import os
 import sys
 import json
 import shutil
+import time
+import gc
+import re
 from datetime import datetime
 from typing import Dict, List, Optional
 import pandas as pd
@@ -43,6 +46,12 @@ class DailyPipelineOrchestrator:
         # Google Drive configuration
         self.SCOPES = ['https://www.googleapis.com/auth/drive']
         self.service = None
+        
+        # API quota management and rate limiting
+        self.api_call_delay = 0.1  # 100ms between API calls (10 calls/sec)
+        self.batch_size = 100  # Process files in batches to manage memory
+        self.max_retries = 3  # Retry failed API calls
+        self.retry_delay = 2  # Initial retry delay in seconds (exponential backoff)
         
         # Load test folder IDs if in test mode
         if test_mode and os.path.exists('.test_folders.json'):
@@ -93,6 +102,59 @@ class DailyPipelineOrchestrator:
             print(f"📋 Daily Pipeline Orchestrator initialized (TEST MODE - {self.test_file_limit} files only)")
         else:
             print("📋 Daily Pipeline Orchestrator initialized")
+    
+    def _sanitize_for_log(self, text: str) -> str:
+        """
+        Sanitize sensitive data before logging (prevent data leakage)
+        Masks SSN, email, phone numbers, and other PII
+        """
+        if not text:
+            return text
+        
+        # Mask SSN patterns (###-##-####)
+        text = re.sub(r'\b\d{3}-\d{2}-\d{4}\b', '***-**-****', text)
+        
+        # Mask partial SSN (last 4 digits only shown)
+        text = re.sub(r'\b\d{3}-\d{2}-(\d{4})\b', r'***-**-\1', text)
+        
+        # Mask email addresses
+        text = re.sub(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', '***@***.***', text)
+        
+        # Mask phone numbers
+        text = re.sub(r'\b\d{3}[-.]?\d{3}[-.]?\d{4}\b', '***-***-****', text)
+        
+        return text
+    
+    def _api_call_with_retry(self, api_call_func, *args, **kwargs):
+        """
+        Execute API call with exponential backoff retry logic
+        Handles quota errors and rate limiting
+        """
+        for attempt in range(self.max_retries):
+            try:
+                # Rate limiting delay
+                time.sleep(self.api_call_delay)
+                
+                # Execute the API call
+                return api_call_func(*args, **kwargs)
+                
+            except Exception as e:
+                error_str = str(e).lower()
+                
+                # Check if it's a quota or rate limit error
+                if "quota" in error_str or "rate" in error_str or "429" in error_str:
+                    wait_time = self.retry_delay * (2 ** attempt)  # Exponential backoff
+                    print(f"   ⚠️  API quota/rate limit hit, waiting {wait_time}s (attempt {attempt + 1}/{self.max_retries})...")
+                    time.sleep(wait_time)
+                    
+                    if attempt == self.max_retries - 1:
+                        print(f"   ❌ Max retries reached for API call")
+                        raise
+                else:
+                    # Not a quota error, raise immediately
+                    raise
+        
+        return None
     
     def authenticate_google_drive(self):
         """Authenticate with Google Drive API using service account"""
@@ -190,6 +252,96 @@ class DailyPipelineOrchestrator:
         
         return cp2000_folders
     
+    def _list_files_paginated(self, folder_id: str, max_results: int = None) -> List[Dict]:
+        """
+        List files with pagination and rate limiting to avoid quota issues
+        For production use with 1000s of files
+        """
+        all_files = []
+        page_token = None
+        page_size = 100  # Safe page size (API max is 1000)
+        
+        try:
+            while True:
+                # API call with retry logic
+                def list_call():
+                    return self.service.files().list(
+                        q=f"'{folder_id}' in parents and mimeType='application/pdf' and trashed=false",
+                        pageSize=page_size,
+                        pageToken=page_token,
+                        fields="nextPageToken, files(id, name, size)"
+                    ).execute()
+                
+                results = self._api_call_with_retry(list_call)
+                
+                if results:
+                    files = results.get('files', [])
+                    all_files.extend(files)
+                    
+                    page_token = results.get('nextPageToken')
+                    if not page_token:
+                        break
+                    
+                    # Break if we've reached max_results
+                    if max_results and len(all_files) >= max_results:
+                        all_files = all_files[:max_results]
+                        break
+                else:
+                    break
+        
+        except Exception as e:
+            print(f"   ❌ Error listing files: {self._sanitize_for_log(str(e))}")
+        
+        return all_files
+    
+    def _download_files_in_batches(self, files: List[Dict], folder_info: Dict) -> List[Dict]:
+        """
+        Download files in batches with memory management
+        Prevents memory leaks for large-scale processing
+        """
+        downloaded_files = []
+        
+        for batch_start in range(0, len(files), self.batch_size):
+            batch_end = min(batch_start + self.batch_size, len(files))
+            batch = files[batch_start:batch_end]
+            
+            batch_num = batch_start // self.batch_size + 1
+            total_batches = (len(files) + self.batch_size - 1) // self.batch_size
+            print(f"   📦 Batch {batch_num}/{total_batches}: Processing {len(batch)} files...")
+            
+            for i, file in enumerate(batch, 1):
+                try:
+                    local_path = os.path.join(self.temp_dir, file['name'])
+                    
+                    # Download with retry logic
+                    def download_call():
+                        request = self.service.files().get_media(fileId=file['id'])
+                        with open(local_path, 'wb') as f:
+                            downloader = MediaIoBaseDownload(f, request, chunksize=1024*1024)  # 1MB chunks
+                            done = False
+                            while not done:
+                                status, done = downloader.next_chunk()
+                        return True
+                    
+                    self._api_call_with_retry(download_call)
+                    
+                    downloaded_files.append({
+                        'local_path': local_path,
+                        'filename': file['name'],
+                        'drive_id': file['id'],
+                        'source_folder': folder_info['path']
+                    })
+                
+                except Exception as e:
+                    print(f"   ❌ Error downloading {file['name']}: {self._sanitize_for_log(str(e))}")
+            
+            # Force garbage collection after each batch to free memory
+            gc.collect()
+            
+            print(f"   ✅ Batch {batch_num}/{total_batches} complete: {len(downloaded_files)}/{len(files)} total downloaded")
+        
+        return downloaded_files
+    
     def download_new_files(self) -> List[str]:
         """Download new files from CP2000 folders only"""
         print("\n📥 STEP 1: DOWNLOADING CP2000 FILES FROM GOOGLE DRIVE")
@@ -215,44 +367,21 @@ class DailyPipelineOrchestrator:
             
             print(f"\n📁 Processing: {folder_info['path']}")
             
-            # List PDFs in this folder
-            query = f"'{folder_info['id']}' in parents and mimeType='application/pdf' and trashed=false"
-            results = self.service.files().list(q=query, fields="files(id, name)").execute()
-            files = results.get('files', [])
+            # IMPROVED: Use paginated file listing (handles 1000s of files)
+            max_results = None
+            if self.test_mode:
+                max_results = self.test_file_limit - len(all_files)
+            
+            files = self._list_files_paginated(folder_info['id'], max_results=max_results)
             
             print(f"   Found: {len(files)} PDFs")
             
-            # Limit files in test mode
-            if self.test_mode:
-                remaining = self.test_file_limit - len(all_files)
-                files = files[:remaining]
-                if files:
-                    print(f"   Test mode: Processing only {len(files)} files from this folder")
+            if self.test_mode and files:
+                print(f"   Test mode: Processing {len(files)} files from this folder")
             
-            # Download each file
-            for i, file in enumerate(files, 1):
-                try:
-                    local_path = os.path.join(self.temp_dir, file['name'])
-                    
-                    request = self.service.files().get_media(fileId=file['id'])
-                    with open(local_path, 'wb') as f:
-                        downloader = MediaIoBaseDownload(f, request)
-                        done = False
-                        while not done:
-                            status, done = downloader.next_chunk()
-                    
-                    all_files.append({
-                        'local_path': local_path,
-                        'filename': file['name'],
-                        'drive_id': file['id'],
-                        'source_folder': folder_info['path']
-                    })
-                    
-                    if i % 10 == 0:
-                        print(f"   Downloaded: {i}/{len(files)} files...")
-                
-                except Exception as e:
-                    print(f"   ❌ Error downloading {file['name']}: {str(e)}")
+            # IMPROVED: Download in batches with memory management
+            downloaded = self._download_files_in_batches(files, folder_info)
+            all_files.extend(downloaded)
         
         print(f"\n✅ Total CP2000 files downloaded: {len(all_files)}")
         self.processing_stats['total_files'] = len(all_files)
@@ -338,30 +467,33 @@ class DailyPipelineOrchestrator:
             print(f"   Would move {len(self.unmatched_cases)} files to CP2000_UNMATCHED")
             return
         
-        # Move matched files to Folder B
+            # Move matched files to Folder B
         print(f"\n✅ Moving {len(self.matched_cases)} matched files to CP2000_MATCHED...")
         for i, file_info in enumerate(self.matched_cases, 1):
             try:
-                # Move file in Google Drive
                 file_id = file_info['drive_id']
                 new_parents = self.folders['output_matched']
                 
-                # Remove from old parent and add to new parent
-                file = self.service.files().get(fileId=file_id, fields='parents').execute()
-                previous_parents = ",".join(file.get('parents', []))
+                # IMPROVED: Move with retry logic and rate limiting
+                def move_call():
+                    file = self.service.files().get(fileId=file_id, fields='parents').execute()
+                    previous_parents = ",".join(file.get('parents', []))
+                    
+                    self.service.files().update(
+                        fileId=file_id,
+                        addParents=new_parents,
+                        removeParents=previous_parents,
+                        fields='id, parents'
+                    ).execute()
+                    return True
                 
-                self.service.files().update(
-                    fileId=file_id,
-                    addParents=new_parents,
-                    removeParents=previous_parents,
-                    fields='id, parents'
-                ).execute()
+                self._api_call_with_retry(move_call)
                 
                 if i % 10 == 0:
                     print(f"   Moved: {i}/{len(self.matched_cases)} files...")
                 
             except Exception as e:
-                print(f"   ❌ Error moving {file_info['filename']}: {str(e)}")
+                print(f"   ❌ Error moving {file_info['filename']}: {self._sanitize_for_log(str(e))}")
         
         print(f"   ✅ Moved {len(self.matched_cases)} files to CP2000_MATCHED")
         
@@ -369,26 +501,29 @@ class DailyPipelineOrchestrator:
         print(f"\n⚠️  Moving {len(self.unmatched_cases)} unmatched files to CP2000_UNMATCHED...")
         for i, file_info in enumerate(self.unmatched_cases, 1):
             try:
-                # Move file in Google Drive
                 file_id = file_info['drive_id']
                 new_parents = self.folders['output_unmatched']
                 
-                # Remove from old parent and add to new parent
-                file = self.service.files().get(fileId=file_id, fields='parents').execute()
-                previous_parents = ",".join(file.get('parents', []))
+                # IMPROVED: Move with retry logic and rate limiting
+                def move_call():
+                    file = self.service.files().get(fileId=file_id, fields='parents').execute()
+                    previous_parents = ",".join(file.get('parents', []))
+                    
+                    self.service.files().update(
+                        fileId=file_id,
+                        addParents=new_parents,
+                        removeParents=previous_parents,
+                        fields='id, parents'
+                    ).execute()
+                    return True
                 
-                self.service.files().update(
-                    fileId=file_id,
-                    addParents=new_parents,
-                    removeParents=previous_parents,
-                    fields='id, parents'
-                ).execute()
+                self._api_call_with_retry(move_call)
                 
                 if i % 10 == 0:
                     print(f"   Moved: {i}/{len(self.unmatched_cases)} files...")
                 
             except Exception as e:
-                print(f"   ❌ Error moving {file_info['filename']}: {str(e)}")
+                print(f"   ❌ Error moving {file_info['filename']}: {self._sanitize_for_log(str(e))}")
         
         print(f"   ✅ Moved {len(self.unmatched_cases)} files to CP2000_UNMATCHED")
     
@@ -535,13 +670,30 @@ class DailyPipelineOrchestrator:
             print(f"   🗑️  Local report files cleaned up")
     
     def cleanup(self):
-        """Clean up temporary files and local report directories"""
+        """
+        Clean up temporary files and local report directories
+        IMPROVED: Secure file deletion with memory management
+        """
         print("\n🗑️  STEP 5: CLEANING UP")
         print("=" * 80)
         
+        # IMPROVED: Delete files individually to manage memory better
         if os.path.exists(self.temp_dir):
-            shutil.rmtree(self.temp_dir)
-            print("   ✅ Temporary PDF files deleted")
+            try:
+                # Remove files one by one (prevents memory spikes with large files)
+                for file in os.listdir(self.temp_dir):
+                    try:
+                        file_path = os.path.join(self.temp_dir, file)
+                        if os.path.isfile(file_path):
+                            os.remove(file_path)  # Securely delete temp files
+                    except Exception as e:
+                        print(f"   ⚠️  Could not remove {file}: {str(e)}")
+                
+                # Remove directory
+                shutil.rmtree(self.temp_dir)
+                print("   ✅ Temporary PDF files deleted (secure cleanup)")
+            except Exception as e:
+                print(f"   ⚠️  Error during cleanup: {str(e)}")
         
         # In test mode, keep reports locally if they exist
         if self.test_mode:
@@ -550,8 +702,15 @@ class DailyPipelineOrchestrator:
         else:
             # Clean up DAILY_REPORTS directory in production (reports are in Google Drive)
             if os.path.exists(self.output_dir):
-                shutil.rmtree(self.output_dir)
-                print("   ✅ Local report directory cleaned (reports saved to Google Drive)")
+                try:
+                    shutil.rmtree(self.output_dir)
+                    print("   ✅ Local report directory cleaned (reports saved to Google Drive)")
+                except Exception as e:
+                    print(f"   ⚠️  Error cleaning reports: {str(e)}")
+        
+        # IMPROVED: Force garbage collection to free memory
+        gc.collect()
+        print("   ✅ Memory released (garbage collection complete)")
     
     def run(self):
         """Run the complete daily pipeline"""

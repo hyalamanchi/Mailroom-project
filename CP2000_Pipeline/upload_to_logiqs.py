@@ -18,6 +18,8 @@ import os
 import json
 import requests
 import time
+import re
+import gc
 from datetime import datetime
 from typing import List, Dict, Optional
 from dotenv import load_dotenv
@@ -78,6 +80,32 @@ class LogiqsDocumentUploader:
         # Rate limiting
         self.delay_between_uploads = 1  # 1 second between uploads
         
+        # API quota management
+        self.max_retries = 3
+        self.retry_delay = 2
+    
+    def _sanitize_for_log(self, text: str) -> str:
+        """
+        Sanitize sensitive data before logging (prevent data leakage)
+        Masks SSN, email, phone numbers, and other PII
+        """
+        if not text:
+            return text
+        
+        # Mask SSN patterns
+        text = re.sub(r'\b\d{3}-\d{2}-\d{4}\b', '***-**-****', text)
+        
+        # Mask email addresses
+        text = re.sub(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', '***@***.***', text)
+        
+        # Mask phone numbers
+        text = re.sub(r'\b\d{3}[-.]?\d{3}[-.]?\d{4}\b', '***-***-****', text)
+        
+        # Mask Case IDs (partial)
+        text = re.sub(r'\b(\d{4})\d+\b', r'\1****', text)
+        
+        return text
+    
     def authenticate_google_drive(self):
         """Authenticate with Google Drive using service account"""
         print("🔐 Authenticating with Google Drive...")
