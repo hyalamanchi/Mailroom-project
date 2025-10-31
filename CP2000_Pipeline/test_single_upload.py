@@ -11,13 +11,10 @@ Version: 1.0
 
 import os
 import json
-import pickle
 import requests
 from datetime import datetime
 from dotenv import load_dotenv
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
-from google.auth.transport.requests import Request
+from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 
@@ -52,26 +49,25 @@ class SingleFileUploadTest:
         os.makedirs(self.temp_dir, exist_ok=True)
     
     def authenticate_google_drive(self):
-        """Authenticate with Google Drive"""
+        """Authenticate with Google Drive using service account"""
         print("🔐 Authenticating with Google Drive...")
-        creds = None
         
-        if os.path.exists('token.pickle'):
-            with open('token.pickle', 'rb') as token:
-                creds = pickle.load(token)
-        
-        if not creds or not creds.valid:
-            if creds and creds.expired and creds.refresh_token:
-                creds.refresh(Request())
-            else:
-                flow = InstalledAppFlow.from_client_secrets_file('credentials.json', self.SCOPES)
-                creds = flow.run_local_server(port=0)
+        try:
+            creds = service_account.Credentials.from_service_account_file(
+                'service-account-key.json',
+                scopes=self.SCOPES
+            )
             
-            with open('token.pickle', 'wb') as token:
-                pickle.dump(creds, token)
-        
-        self.drive_service = build('drive', 'v3', credentials=creds)
-        print("   ✅ Google Drive authenticated\n")
+            self.drive_service = build('drive', 'v3', credentials=creds)
+            print("   ✅ Google Drive authenticated (Service Account)\n")
+            
+        except FileNotFoundError:
+            print("   ❌ Error: service-account-key.json not found")
+            print("   💡 Place your service account JSON file in the project root")
+            raise
+        except Exception as e:
+            print(f"   ❌ Authentication error: {str(e)}")
+            raise
     
     def load_test_case(self):
         """Load one test case from upload list"""

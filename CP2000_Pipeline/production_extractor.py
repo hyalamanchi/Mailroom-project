@@ -32,10 +32,7 @@ import sys
 import hashlib
 from datetime import datetime
 from concurrent.futures import ProcessPoolExecutor, as_completed
-import pickle
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
-from google.auth.transport.requests import Request
+from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 import pandas as pd
@@ -92,25 +89,23 @@ class ProductionExtractor:
         return hashlib.md5(filename.encode()).hexdigest()
     
     def authenticate(self):
-        """Authenticate with Google Drive"""
-        creds = None
-        
-        if os.path.exists('token.pickle'):
-            with open('token.pickle', 'rb') as token:
-                creds = pickle.load(token)
-        
-        if not creds or not creds.valid:
-            if creds and creds.expired and creds.refresh_token:
-                creds.refresh(Request())
-            else:
-                flow = InstalledAppFlow.from_client_secrets_file('credentials.json', self.SCOPES)
-                creds = flow.run_local_server(port=0)
+        """Authenticate with Google Drive using service account"""
+        try:
+            creds = service_account.Credentials.from_service_account_file(
+                'service-account-key.json',
+                scopes=self.SCOPES
+            )
             
-            with open('token.pickle', 'wb') as token:
-                pickle.dump(creds, token)
-        
-        self.service = build('drive', 'v3', credentials=creds)
-        print("✅ Authenticated with Google Drive")
+            self.service = build('drive', 'v3', credentials=creds)
+            print("✅ Authenticated with Google Drive (Service Account)")
+            
+        except FileNotFoundError:
+            print("❌ Error: service-account-key.json not found")
+            print("💡 Place your service account JSON file in the project root")
+            raise
+        except Exception as e:
+            print(f"❌ Authentication error: {str(e)}")
+            raise
     
     def download_from_drive(self):
         """Download PDFs from Google Drive with INCREMENTAL processing"""

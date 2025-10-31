@@ -46,6 +46,8 @@ CP2000_Pipeline/
 ├── generate_upload_list.py           # Naming convention generator
 ├── hundred_percent_accuracy_extractor.py  # Core OCR engine
 ├── requirements.txt                  # Python dependencies
+├── service-account-key.json          # Google Drive service account (not in repo)
+├── SERVICE_ACCOUNT_SETUP.md          # Service account configuration guide
 ├── DAILY_WORKFLOW_GUIDE.md          # Complete workflow documentation
 └── README.md                         # Technical documentation
 ```
@@ -71,9 +73,10 @@ cd CP2000_Pipeline
 pip install -r requirements.txt
 ```
 
-3. **Configure Google Drive API**
-   - Place `credentials.json` in the project root
-   - Run authentication on first use (creates `token.pickle`)
+3. **Configure Google Drive API (Service Account)**
+   - Place `service-account-key.json` in the project root
+   - Share Google Drive folders with service account email
+   - See [SERVICE_ACCOUNT_SETUP.md](SERVICE_ACCOUNT_SETUP.md) for detailed instructions
 
 4. **Configure environment variables**
 ```bash
