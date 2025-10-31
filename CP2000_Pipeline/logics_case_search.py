@@ -9,6 +9,9 @@ import time
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime
 
+# Import robust API utilities (TRA_API pattern)
+from api_utils import run_resiliently, resilient_api_call
+
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -38,7 +41,10 @@ class LogicsCaseSearcher:
 
     def _make_request_with_retry(self, method: str, url: str, **kwargs) -> Optional[requests.Response]:
         """
-        Make HTTP request with retry logic
+        Make HTTP request with retry logic using run_resiliently.
+        
+        This is a wrapper around the robust run_resiliently pattern from TRA_API,
+        which handles quota errors, rate limiting, network issues, and timeouts.
         
         Args:
             method: HTTP method (GET, POST, etc.)
@@ -48,33 +54,35 @@ class LogicsCaseSearcher:
         Returns:
             Response object or None if all retries failed
         """
-        for attempt in range(self.max_retries):
-            try:
-                logger.debug(f"Making {method} request to {url} (attempt {attempt + 1}/{self.max_retries})")
-                response = self.session.request(method, url, **kwargs)
-                
-                # Check for rate limiting
-                if response.status_code == 429:
-                    retry_after = int(response.headers.get('Retry-After', self.retry_delay))
-                    logger.warning(f"Rate limited. Waiting {retry_after} seconds...")
-                    time.sleep(retry_after)
-                    continue
-                
-                response.raise_for_status()
-                return response
-                
-            except requests.exceptions.RequestException as e:
-                logger.warning(f"Request failed (attempt {attempt + 1}/{self.max_retries}): {e}")
-                
-                if attempt < self.max_retries - 1:
-                    wait_time = self.retry_delay * (2 ** attempt)  # Exponential backoff
-                    logger.info(f"Retrying in {wait_time} seconds...")
-                    time.sleep(wait_time)
-                else:
-                    logger.error(f"All retry attempts failed for {method} {url}")
-                    return None
+        def _request_internal():
+            """Internal request function wrapped by run_resiliently"""
+            logger.debug(f"Making {method} request to {url}")
+            response = self.session.request(method, url, **kwargs)
+            
+            # Check for rate limiting
+            if response.status_code == 429:
+                retry_after = int(response.headers.get('Retry-After', self.retry_delay))
+                logger.warning(f"Rate limited. Waiting {retry_after} seconds...")
+                time.sleep(retry_after)
+                # Raise to trigger retry
+                raise Exception(f"Rate limited (429), retry after {retry_after}s")
+            
+            # Raise for other error status codes to trigger retry
+            response.raise_for_status()
+            return response
         
-        return None
+        try:
+            # Use run_resiliently for automatic retry with backoff
+            return run_resiliently(
+                _request_internal,
+                max_retries=self.max_retries,
+                initial_delay=self.retry_delay,
+                backoff_factor=2.0,
+                max_delay=60.0
+            )
+        except Exception as e:
+            logger.error(f"All retry attempts failed for {method} {url}: {str(e)}")
+            return None
 
     def search_case(self, ssn_last_4: str, last_name: str, first_name: Optional[str] = None) -> Optional[Dict]:
         """

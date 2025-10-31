@@ -28,6 +28,9 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 import pandas as pd
 
+# Import robust API utilities (TRA_API pattern)
+from api_utils import run_resiliently, resilient_api_call
+
 # Load environment variables
 load_dotenv()
 
@@ -186,7 +189,9 @@ class LogiqsDocumentUploader:
     
     def upload_to_logiqs(self, case_id: int, file_path: str, comment: str = "") -> Dict:
         """
-        Upload a document to Logiqs CRM
+        Upload a document to Logiqs CRM with automatic retry logic.
+        
+        Uses run_resiliently wrapper for production-grade reliability.
         
         Args:
             case_id: Logiqs Case ID
@@ -196,7 +201,10 @@ class LogiqsDocumentUploader:
         Returns:
             Dict with upload status and details
         """
-        try:
+        filename = os.path.basename(file_path)
+        
+        def _upload_internal():
+            """Internal upload function wrapped by run_resiliently"""
             # Use the verified working endpoint
             url = self.document_url
             
@@ -206,9 +214,6 @@ class LogiqsDocumentUploader:
                 'CaseID': case_id,
                 'Comment': comment or f"Uploaded via API - {datetime.now().strftime('%Y-%m-%d %H:%M')}"
             }
-            
-            # Prepare the file
-            filename = os.path.basename(file_path)
             
             with open(file_path, 'rb') as f:
                 files = {
@@ -233,25 +238,41 @@ class LogiqsDocumentUploader:
                     'filename': filename
                 }
             else:
-                return {
-                    'success': False,
-                    'status_code': response.status_code,
-                    'error': response.text,
-                    'case_id': case_id,
-                    'filename': filename
-                }
+                # Return error dict but don't raise for 400/404 errors (permanent failures)
+                if response.status_code in [400, 404]:
+                    return {
+                        'success': False,
+                        'status_code': response.status_code,
+                        'error': response.text,
+                        'case_id': case_id,
+                        'filename': filename
+                    }
+                # Raise exception for retryable errors (429, 500, 502, 503, 504)
+                raise Exception(f"Upload failed with status {response.status_code}: {response.text}")
+        
+        try:
+            # Use run_resiliently for automatic retry with backoff
+            return run_resiliently(
+                _upload_internal,
+                max_retries=self.max_retries,
+                initial_delay=self.retry_delay,
+                backoff_factor=2.0,
+                max_delay=30.0
+            )
         
         except Exception as e:
             return {
                 'success': False,
-                'error': str(e),
+                'error': self._sanitize_for_log(str(e)),
                 'case_id': case_id,
                 'filename': filename
             }
     
     def create_task(self, case_id: int, subject: str, due_date: str, comments: str = "", priority: int = 2) -> Dict:
         """
-        Create a task in Logiqs using Basic Authentication
+        Create a task in Logiqs using Basic Authentication with automatic retry logic.
+        
+        Uses run_resiliently wrapper for production-grade reliability.
         
         Args:
             case_id: Logiqs Case ID
@@ -263,7 +284,8 @@ class LogiqsDocumentUploader:
         Returns:
             Dict with task creation status
         """
-        try:
+        def _create_task_internal():
+            """Internal task creation function wrapped by run_resiliently"""
             import base64
             from dateutil import parser as date_parser
             
@@ -318,16 +340,30 @@ class LogiqsDocumentUploader:
                     'task_id': task_id
                 }
             else:
-                return {
-                    'success': False,
-                    'status_code': response.status_code,
-                    'error': response.text
-                }
+                # Don't retry 400/404 errors (permanent failures)
+                if response.status_code in [400, 404]:
+                    return {
+                        'success': False,
+                        'status_code': response.status_code,
+                        'error': response.text
+                    }
+                # Raise exception for retryable errors
+                raise Exception(f"Task creation failed with status {response.status_code}: {response.text}")
+        
+        try:
+            # Use run_resiliently for automatic retry with backoff
+            return run_resiliently(
+                _create_task_internal,
+                max_retries=self.max_retries,
+                initial_delay=self.retry_delay,
+                backoff_factor=2.0,
+                max_delay=30.0
+            )
         
         except Exception as e:
             return {
                 'success': False,
-                'error': str(e)
+                'error': self._sanitize_for_log(str(e))
             }
     
     def process_upload(self, entry: Dict, index: int, total: int) -> Dict:

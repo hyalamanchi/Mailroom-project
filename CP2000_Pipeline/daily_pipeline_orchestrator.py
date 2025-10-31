@@ -32,6 +32,9 @@ from google.oauth2 import service_account
 from hundred_percent_accuracy_extractor import HundredPercentAccuracyExtractor
 from logics_case_search import LogicsCaseSearcher
 
+# Import robust API utilities (TRA_API pattern)
+from api_utils import run_resiliently, resilient_api_call, rate_limited
+
 
 class DailyPipelineOrchestrator:
     """
@@ -127,34 +130,21 @@ class DailyPipelineOrchestrator:
     
     def _api_call_with_retry(self, api_call_func, *args, **kwargs):
         """
-        Execute API call with exponential backoff retry logic
-        Handles quota errors and rate limiting
-        """
-        for attempt in range(self.max_retries):
-            try:
-                # Rate limiting delay
-                time.sleep(self.api_call_delay)
-                
-                # Execute the API call
-                return api_call_func(*args, **kwargs)
-                
-            except Exception as e:
-                error_str = str(e).lower()
-                
-                # Check if it's a quota or rate limit error
-                if "quota" in error_str or "rate" in error_str or "429" in error_str:
-                    wait_time = self.retry_delay * (2 ** attempt)  # Exponential backoff
-                    print(f"   ⚠️  API quota/rate limit hit, waiting {wait_time}s (attempt {attempt + 1}/{self.max_retries})...")
-                    time.sleep(wait_time)
-                    
-                    if attempt == self.max_retries - 1:
-                        print(f"   ❌ Max retries reached for API call")
-                        raise
-                else:
-                    # Not a quota error, raise immediately
-                    raise
+        Execute API call with exponential backoff retry logic using run_resiliently.
         
-        return None
+        This is a wrapper around the robust run_resiliently pattern from TRA_API,
+        which handles quota errors, rate limiting, network issues, and timeouts.
+        """
+        return run_resiliently(
+            api_call_func,
+            *args,
+            max_retries=self.max_retries,
+            initial_delay=self.retry_delay,
+            backoff_factor=2.0,
+            max_delay=60.0,
+            rate_limit_delay=self.api_call_delay,
+            **kwargs
+        )
     
     def authenticate_google_drive(self):
         """Authenticate with Google Drive API using service account"""
