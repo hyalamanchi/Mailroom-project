@@ -28,7 +28,6 @@ from google.oauth2 import service_account
 # Import our existing modules
 from hundred_percent_accuracy_extractor import HundredPercentAccuracyExtractor
 from logics_case_search import LogicsCaseSearcher
-from generate_upload_list import UploadListGenerator
 
 
 class DailyPipelineOrchestrator:
