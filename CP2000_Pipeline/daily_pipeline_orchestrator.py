@@ -382,10 +382,31 @@ class DailyPipelineOrchestrator:
         
         print(f"   ✅ Moved {len(self.unmatched_cases)} files to CP2000_UNMATCHED")
     
+    def upload_file_to_drive(self, local_path, folder_id, filename):
+        """Upload a file to Google Drive"""
+        from googleapiclient.http import MediaFileUpload
+        
+        try:
+            file_metadata = {
+                'name': filename,
+                'parents': [folder_id]
+            }
+            media = MediaFileUpload(local_path, resumable=True)
+            file = self.service.files().create(
+                body=file_metadata,
+                media_body=media,
+                fields='id, webViewLink'
+            ).execute()
+            return file.get('id'), file.get('webViewLink')
+        except Exception as e:
+            print(f"   ⚠️  Error uploading {filename}: {str(e)}")
+            return None, None
+    
     def generate_reports(self):
-        """Generate comprehensive daily reports"""
+        """Generate comprehensive daily reports and upload to Google Drive"""
         print("\n📊 STEP 4: GENERATING DAILY REPORTS")
         print("=" * 80)
+        print("📤 Reports will be saved to Google Drive")
         
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         
@@ -397,6 +418,7 @@ class DailyPipelineOrchestrator:
                 'cases': self.matched_cases
             }
             
+            # Save locally first
             matched_json = os.path.join(self.matched_dir, f'matched_cases_{timestamp}.json')
             with open(matched_json, 'w', encoding='utf-8') as f:
                 json.dump(matched_report, f, indent=2, ensure_ascii=False)
@@ -415,7 +437,19 @@ class DailyPipelineOrchestrator:
             matched_excel = os.path.join(self.matched_dir, f'matched_cases_{timestamp}.xlsx')
             matched_df.to_excel(matched_excel, index=False, engine='openpyxl')
             
-            print(f"   ✅ Matched cases report: {matched_excel}")
+            # Upload to Google Drive
+            print(f"   📤 Uploading matched report to Google Drive...")
+            file_id, link = self.upload_file_to_drive(
+                matched_excel,
+                self.folders['output_matched'],
+                f'MATCHED_REPORT_{timestamp}.xlsx'
+            )
+            if file_id:
+                print(f"   ✅ Matched report uploaded to CP2000_MATCHED folder")
+            
+            # Clean up local file
+            os.remove(matched_excel)
+            os.remove(matched_json)
         
         # Save unmatched cases report
         if self.unmatched_cases:
@@ -425,6 +459,7 @@ class DailyPipelineOrchestrator:
                 'cases': self.unmatched_cases
             }
             
+            # Save locally first
             unmatched_json = os.path.join(self.unmatched_dir, f'unmatched_cases_{timestamp}.json')
             with open(unmatched_json, 'w', encoding='utf-8') as f:
                 json.dump(unmatched_report, f, indent=2, ensure_ascii=False)
@@ -443,30 +478,36 @@ class DailyPipelineOrchestrator:
             unmatched_excel = os.path.join(self.unmatched_dir, f'unmatched_cases_{timestamp}.xlsx')
             unmatched_df.to_excel(unmatched_excel, index=False, engine='openpyxl')
             
-            print(f"   ✅ Unmatched cases report: {unmatched_excel}")
+            # Upload to Google Drive
+            print(f"   📤 Uploading unmatched report to Google Drive...")
+            file_id, link = self.upload_file_to_drive(
+                unmatched_excel,
+                self.folders['output_unmatched'],
+                f'UNMATCHED_REPORT_{timestamp}.xlsx'
+            )
+            if file_id:
+                print(f"   ✅ Unmatched report uploaded to CP2000_UNMATCHED folder")
+            
+            # Clean up local file
+            os.remove(unmatched_excel)
+            os.remove(unmatched_json)
         
-        # Summary report
-        summary = {
-            'date': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            'statistics': self.processing_stats,
-            'matched_folder_id': self.folders['output_matched'],
-            'unmatched_folder_id': self.folders['output_unmatched']
-        }
-        
-        summary_file = os.path.join(self.output_dir, f'daily_summary_{timestamp}.json')
-        with open(summary_file, 'w', encoding='utf-8') as f:
-            json.dump(summary, f, indent=2)
-        
-        print(f"   ✅ Daily summary: {summary_file}")
+        print(f"\n   📊 All reports uploaded to Google Drive")
+        print(f"   🗑️  Local report files cleaned up")
     
     def cleanup(self):
-        """Clean up temporary files"""
+        """Clean up temporary files and local report directories"""
         print("\n🗑️  STEP 5: CLEANING UP")
         print("=" * 80)
         
         if os.path.exists(self.temp_dir):
             shutil.rmtree(self.temp_dir)
-            print("   ✅ Temporary files deleted")
+            print("   ✅ Temporary PDF files deleted")
+        
+        # Clean up DAILY_REPORTS directory (reports are in Google Drive now)
+        if os.path.exists(self.output_dir):
+            shutil.rmtree(self.output_dir)
+            print("   ✅ Local report directory cleaned (reports saved to Google Drive)")
     
     def run(self):
         """Run the complete daily pipeline"""
