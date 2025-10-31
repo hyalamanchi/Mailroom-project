@@ -149,30 +149,64 @@ class DailyPipelineOrchestrator:
         folder = self.service.files().create(body=file_metadata, fields='id').execute()
         return folder.get('id')
     
+    def find_cp2000_folders(self, parent_id, path=""):
+        """Recursively find all CP2000 folders"""
+        cp2000_folders = []
+        
+        try:
+            query = f"'{parent_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
+            results = self.service.files().list(q=query, fields="files(id, name)").execute()
+            folders = results.get('files', [])
+            
+            for folder in folders:
+                folder_name = folder.get('name', '').upper()
+                folder_id = folder.get('id')
+                folder_path = f"{path}/{folder['name']}" if path else folder['name']
+                
+                # Check if this is a CP2000 folder
+                if 'CP2000' in folder_name or 'CP 2000' in folder_name:
+                    cp2000_folders.append({
+                        'id': folder_id,
+                        'name': folder['name'],
+                        'path': folder_path
+                    })
+                    print(f"   ✅ Found CP2000 folder: {folder_path}")
+                
+                # Recurse into subfolders
+                cp2000_folders.extend(self.find_cp2000_folders(folder_id, folder_path))
+        
+        except Exception as e:
+            print(f"   ⚠️  Error scanning folder: {str(e)}")
+        
+        return cp2000_folders
+    
     def download_new_files(self) -> List[str]:
-        """Download new files from input folders"""
-        print("\n📥 STEP 1: DOWNLOADING NEW FILES FROM INPUT FOLDERS")
+        """Download new files from CP2000 folders only"""
+        print("\n📥 STEP 1: DOWNLOADING CP2000 FILES FROM GOOGLE DRIVE")
         print("=" * 80)
+        print("🎯 Focus: CP2000 letters only (all batches)")
         
         if self.test_mode:
             print(f"⚠️  TEST MODE: Will download only {self.test_file_limit} files for testing")
         
+        # Find all CP2000 folders recursively
+        print("\n🔍 Scanning for CP2000 folders...")
+        cp2000_folders = self.find_cp2000_folders(self.folders['input_main'])
+        
+        print(f"\n✅ Found {len(cp2000_folders)} CP2000 folder(s)")
+        
         all_files = []
         
-        # Download from main input folder
-        input_folders = {
-            'main_folder': self.folders['input_main']
-        }
-        
-        for folder_name, folder_id in input_folders.items():
+        # Download PDFs from each CP2000 folder
+        for folder_info in cp2000_folders:
             # Skip if we've reached test limit
             if self.test_mode and len(all_files) >= self.test_file_limit:
                 break
             
-            print(f"\n📁 Processing: {folder_name}")
+            print(f"\n📁 Processing: {folder_info['path']}")
             
-            # List files in folder
-            query = f"'{folder_id}' in parents and mimeType='application/pdf' and trashed=false"
+            # List PDFs in this folder
+            query = f"'{folder_info['id']}' in parents and mimeType='application/pdf' and trashed=false"
             results = self.service.files().list(q=query, fields="files(id, name)").execute()
             files = results.get('files', [])
             
@@ -182,7 +216,8 @@ class DailyPipelineOrchestrator:
             if self.test_mode:
                 remaining = self.test_file_limit - len(all_files)
                 files = files[:remaining]
-                print(f"   Test mode: Processing only {len(files)} files from this folder")
+                if files:
+                    print(f"   Test mode: Processing only {len(files)} files from this folder")
             
             # Download each file
             for i, file in enumerate(files, 1):
@@ -200,7 +235,7 @@ class DailyPipelineOrchestrator:
                         'local_path': local_path,
                         'filename': file['name'],
                         'drive_id': file['id'],
-                        'source_folder': folder_name
+                        'source_folder': folder_info['path']
                     })
                     
                     if i % 10 == 0:
@@ -209,7 +244,7 @@ class DailyPipelineOrchestrator:
                 except Exception as e:
                     print(f"   ❌ Error downloading {file['name']}: {str(e)}")
         
-        print(f"\n✅ Total files downloaded: {len(all_files)}")
+        print(f"\n✅ Total CP2000 files downloaded: {len(all_files)}")
         self.processing_stats['total_files'] = len(all_files)
         
         return all_files

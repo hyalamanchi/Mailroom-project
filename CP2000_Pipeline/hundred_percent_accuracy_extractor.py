@@ -104,9 +104,37 @@ class HundredPercentAccuracyExtractor:
             r'\b(\d{5,6}-\d{4})\b',  # 87139-0114 format
         ]
         
-        # Letter type patterns - ENHANCED for 800 DPI clarity
-        # Priority order: Exact match > Context match > Flexible match
+        # Letter type patterns - ENHANCED for ALL IRS notice types
+        # Priority order: Specific patterns first, then generic fallback
         self.letter_patterns = [
+            # Specific patterns (highest priority)
+            r'(?:Notice|Letter|Form)\s+(CP\s*2000)\b',  # CP2000 with context
+            r'\b(CP\s*2000)\b',                          # CP2000 - Underreported Income
+            r'\b(CP\s*2501)\b',                          # CP2501 - Underreported Income (simplified)
+            r'\b(CP\s*3219[A-Z]?)\b',                    # CP3219/CP3219A - Notice of Deficiency
+            r'\b(CP\s*504)\b',                           # CP504 - Intent to Levy
+            r'\b(CP\s*566)\b',                           # CP566 - AUR Response
+            r'\b(CP\s*14)\b',                            # CP14 - Unpaid Taxes
+            r'\b(CP\s*501)\b',                           # CP501 - Balance Due
+            r'\b(CP\s*503)\b',                           # CP503 - Urgent Balance Due
+            r'\b(CP\s*505)\b',                           # CP505 - Tax Lien Intent
+            r'\b(CP\s*71[A-Z]?)\b',                      # CP71/CP71A - Annual Reminder
+            r'\b(CP\s*90)\b',                            # CP90 - Final Notice Intent to Levy
+            r'\b(CP\s*91)\b',                            # CP91 - Final Notice FICA
+            r'\b(CP\s*92)\b',                            # CP92 - Notice of Levy on SSA
+            r'\b(CP\s*297)\b',                           # CP297 - Lien Removal
+            r'\b(LTR\s*3172)\b',                         # LTR3172 - Third Party Contact
+            r'\b(LT\s*11)\b',                            # LT11/LTR11
+            r'\b(LTR\s*11)\b',                           # LTR11 (full format)
+            r'\b(LT\s*1058)\b',                          # LT1058/LTR1058
+            r'\b(LTR\s*1058)\b',                         # LTR1058 (full format)
+            r'\b(LTR\s*226[J]?)\b',                      # LTR226/226J
+            r'\b(FORM\s*4549)\b',                        # Form 4549
+            r'\b(FORM\s*668[A-Z]?)\b',                   # Form 668
+            # Generic patterns (fallback - lower priority)
+            r'\b(CP\s*\d{3,4})\b',                       # Any CP code
+            r'\b(LT\s*\d{4})\b',                         # Any LT code
+            r'\b(LTR\s*\d{4})\b',                        # Any LTR code
             r'(CP-\d{4})',                               # Hyphenated format
         ]
         
