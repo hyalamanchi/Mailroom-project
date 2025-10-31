@@ -66,6 +66,8 @@ MAIL_ROOM_RESULTS/*
 !MAIL_ROOM_RESULTS/.gitkeep
 UPLOAD_READY/*
 !UPLOAD_READY/.gitkeep
+COO_REVIEW/*
+!COO_REVIEW/.gitkeep
 
 # Test Files
 test_upload_results.json

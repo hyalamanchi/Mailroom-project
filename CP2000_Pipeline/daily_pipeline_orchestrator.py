@@ -492,6 +492,214 @@ class DailyPipelineOrchestrator:
         print(f"   ✅ Matched: {self.processing_stats['matched']}")
         print(f"   ⚠️  Unmatched: {self.processing_stats['unmatched']}")
     
+    def generate_coo_review_sheet(self):
+        """
+        Generate a comprehensive review sheet for COO to approve before uploading to Logiqs
+        
+        This sheet contains:
+        - Case ID
+        - Proposed naming convention
+        - All extracted data
+        - Confidence scores
+        
+        Returns:
+            str: Path to the generated review Excel file
+        """
+        if not self.matched_cases:
+            print("\n⏭️  No matched cases to review")
+            return None
+        
+        print("\n📋 GENERATING COO REVIEW SHEET")
+        print("=" * 80)
+        
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        review_dir = 'COO_REVIEW'
+        os.makedirs(review_dir, exist_ok=True)
+        
+        # Prepare data for review
+        review_data = []
+        for file_info in self.matched_cases:
+            extracted = file_info.get('extracted_data', {})
+            
+            # Generate proposed naming convention
+            letter_type = extracted.get('letter_type', 'CP2000')
+            tax_year = extracted.get('tax_year', 'Unknown')
+            notice_date = extracted.get('notice_date', 'Unknown')
+            taxpayer_name = extracted.get('taxpayer_name', '')
+            last_name = taxpayer_name.split()[-1] if taxpayer_name else 'Unknown'
+            
+            # Naming convention: IRS_CORR_{Letter Type}_{Tax Year}_DTD {Date of Notice}_{Last Name}.pdf
+            proposed_name = f"IRS_CORR_{letter_type}_{tax_year}_DTD_{notice_date}_{last_name}.pdf"
+            
+            review_data.append({
+                'Case_ID': file_info.get('case_id', ''),
+                'Original_Filename': file_info.get('filename', ''),
+                'Proposed_Filename': proposed_name,
+                'Taxpayer_Name': taxpayer_name,
+                'SSN_Last_4': extracted.get('ssn_last_4', ''),
+                'Letter_Type': letter_type,
+                'Tax_Year': tax_year,
+                'Notice_Date': notice_date,
+                'Due_Date': extracted.get('response_due_date', ''),
+                'Source_Folder': file_info.get('source_folder', ''),
+                'Match_Confidence': 'High',
+                'Approval_Status': '',  # COO will fill this: APPROVE / REJECT / REVIEW
+                'COO_Notes': ''  # COO can add notes
+            })
+        
+        # Create Excel sheet
+        df = pd.DataFrame(review_data)
+        
+        # Add formatting instructions at the top
+        instructions_data = [
+            {'Case_ID': '=== INSTRUCTIONS ===', 'Original_Filename': '', 'Proposed_Filename': '', 
+             'Taxpayer_Name': '', 'SSN_Last_4': '', 'Letter_Type': '', 'Tax_Year': '', 
+             'Notice_Date': '', 'Due_Date': '', 'Source_Folder': '', 'Match_Confidence': '',
+             'Approval_Status': '', 'COO_Notes': ''},
+            {'Case_ID': 'Review each matched case below', 'Original_Filename': '', 'Proposed_Filename': '', 
+             'Taxpayer_Name': '', 'SSN_Last_4': '', 'Letter_Type': '', 'Tax_Year': '', 
+             'Notice_Date': '', 'Due_Date': '', 'Source_Folder': '', 'Match_Confidence': '',
+             'Approval_Status': '', 'COO_Notes': ''},
+            {'Case_ID': 'In Approval_Status column, enter: APPROVE, REJECT, or REVIEW', 'Original_Filename': '', 
+             'Proposed_Filename': '', 'Taxpayer_Name': '', 'SSN_Last_4': '', 'Letter_Type': '', 
+             'Tax_Year': '', 'Notice_Date': '', 'Due_Date': '', 'Source_Folder': '', 
+             'Match_Confidence': '', 'Approval_Status': '', 'COO_Notes': ''},
+            {'Case_ID': 'Add any notes in COO_Notes column', 'Original_Filename': '', 'Proposed_Filename': '', 
+             'Taxpayer_Name': '', 'SSN_Last_4': '', 'Letter_Type': '', 'Tax_Year': '', 
+             'Notice_Date': '', 'Due_Date': '', 'Source_Folder': '', 'Match_Confidence': '',
+             'Approval_Status': '', 'COO_Notes': ''},
+            {'Case_ID': 'Save this file and run: python3 daily_pipeline_orchestrator.py --upload-approved', 
+             'Original_Filename': '', 'Proposed_Filename': '', 'Taxpayer_Name': '', 'SSN_Last_4': '', 
+             'Letter_Type': '', 'Tax_Year': '', 'Notice_Date': '', 'Due_Date': '', 'Source_Folder': '', 
+             'Match_Confidence': '', 'Approval_Status': '', 'COO_Notes': ''},
+            {'Case_ID': '', 'Original_Filename': '', 'Proposed_Filename': '', 'Taxpayer_Name': '', 
+             'SSN_Last_4': '', 'Letter_Type': '', 'Tax_Year': '', 'Notice_Date': '', 'Due_Date': '', 
+             'Source_Folder': '', 'Match_Confidence': '', 'Approval_Status': '', 'COO_Notes': ''},
+        ]
+        
+        instructions_df = pd.DataFrame(instructions_data)
+        final_df = pd.concat([instructions_df, df], ignore_index=True)
+        
+        # Save to Excel
+        excel_path = os.path.join(review_dir, f'COO_REVIEW_MATCHED_CASES_{timestamp}.xlsx')
+        
+        with pd.ExcelWriter(excel_path, engine='openpyxl') as writer:
+            final_df.to_excel(writer, sheet_name='Matched Cases - Review', index=False)
+            
+            # Auto-adjust column widths
+            worksheet = writer.sheets['Matched Cases - Review']
+            for idx, col in enumerate(final_df.columns):
+                max_length = max(
+                    final_df[col].astype(str).map(len).max(),
+                    len(col)
+                ) + 2
+                col_letter = chr(65 + idx) if idx < 26 else chr(65 + idx // 26 - 1) + chr(65 + idx % 26)
+                worksheet.column_dimensions[col_letter].width = min(max_length, 50)
+        
+        print(f"\n✅ COO Review Sheet Generated:")
+        print(f"   📄 {excel_path}")
+        print(f"   📊 {len(self.matched_cases)} cases ready for review")
+        print(f"\n⏸️  PIPELINE PAUSED FOR COO REVIEW")
+        print(f"=" * 80)
+        print(f"\n📋 NEXT STEPS:")
+        print(f"   1. Open: {excel_path}")
+        print(f"   2. Review each matched case")
+        print(f"   3. In 'Approval_Status' column, enter:")
+        print(f"      • APPROVE - Will upload to Logiqs")
+        print(f"      • REJECT - Will move to UNMATCHED folder")
+        print(f"      • REVIEW - Needs additional review")
+        print(f"   4. Save the file")
+        print(f"   5. Run: python3 daily_pipeline_orchestrator.py --upload-approved")
+        print(f"\n💡 Or to skip review and upload all (NOT RECOMMENDED):")
+        print(f"   python3 daily_pipeline_orchestrator.py --skip-review")
+        print("=" * 80)
+        
+        return excel_path
+    
+    def process_coo_approvals(self, review_file_path):
+        """
+        Process COO approved cases from the review sheet
+        
+        Args:
+            review_file_path: Path to the COO-approved review Excel file
+            
+        Returns:
+            list: List of approved cases
+        """
+        if not os.path.exists(review_file_path):
+            print(f"\n❌ Review file not found: {review_file_path}")
+            print(f"   Please ensure you've saved the COO review sheet")
+            return []
+        
+        print("\n📋 PROCESSING COO APPROVALS")
+        print("=" * 80)
+        
+        # Read the review sheet
+        df = pd.read_excel(review_file_path, sheet_name='Matched Cases - Review')
+        
+        # Skip instruction rows
+        df = df[df['Case_ID'] != '=== INSTRUCTIONS ===']
+        df = df[~df['Case_ID'].astype(str).str.startswith('Review each')]
+        df = df[~df['Case_ID'].astype(str).str.startswith('In Approval_Status')]
+        df = df[~df['Case_ID'].astype(str).str.startswith('Add any notes')]
+        df = df[~df['Case_ID'].astype(str).str.startswith('Save this file')]
+        df = df[df['Case_ID'].notna()]
+        df = df[df['Case_ID'].astype(str).str.strip() != '']
+        
+        approved_cases = []
+        rejected_cases = []
+        needs_review_cases = []
+        
+        for _, row in df.iterrows():
+            case_id = str(row.get('Case_ID', '')).strip()
+            approval_status = str(row.get('Approval_Status', '')).strip().upper()
+            
+            # Find the matching case in self.matched_cases
+            matching_case = None
+            for case in self.matched_cases:
+                if str(case.get('case_id', '')).strip() == case_id:
+                    matching_case = case
+                    break
+            
+            if not matching_case:
+                print(f"   ⚠️  Case {case_id} not found in matched cases")
+                continue
+            
+            # Add COO notes to the case
+            matching_case['coo_notes'] = str(row.get('COO_Notes', '')).strip()
+            matching_case['coo_approved_name'] = str(row.get('Proposed_Filename', '')).strip()
+            
+            if approval_status == 'APPROVE':
+                approved_cases.append(matching_case)
+            elif approval_status == 'REJECT':
+                rejected_cases.append(matching_case)
+                # Move rejected cases to unmatched
+                matching_case['status'] = 'rejected_by_coo'
+                matching_case['reason'] = f"Rejected by COO: {matching_case['coo_notes']}"
+                self.unmatched_cases.append(matching_case)
+            elif approval_status == 'REVIEW':
+                needs_review_cases.append(matching_case)
+            else:
+                print(f"   ⚠️  Case {case_id}: No approval status set (skipping)")
+        
+        print(f"\n📊 COO Review Summary:")
+        print(f"   ✅ Approved: {len(approved_cases)} (will upload)")
+        print(f"   ❌ Rejected: {len(rejected_cases)} (moved to UNMATCHED)")
+        print(f"   🔍 Needs Review: {len(needs_review_cases)} (requires additional review)")
+        
+        # Update self.matched_cases to only include approved
+        self.matched_cases = approved_cases
+        
+        if needs_review_cases:
+            print(f"\n⚠️  WARNING: {len(needs_review_cases)} cases still need review")
+            print(f"   These will NOT be uploaded until approved")
+            for case in needs_review_cases:
+                case_id = case.get('case_id', 'Unknown')
+                filename = case.get('filename', 'Unknown')
+                print(f"   • Case {case_id}: {filename}")
+        
+        return approved_cases
+    
     def upload_matched_cases_to_logiqs(self):
         """Upload matched cases to Logiqs CRM with document and task creation"""
         if not self.matched_cases:
@@ -825,8 +1033,14 @@ class DailyPipelineOrchestrator:
         gc.collect()
         print("   ✅ Memory released (garbage collection complete)")
     
-    def run(self):
-        """Run the complete daily pipeline"""
+    def run(self, skip_review=False, upload_approved_file=None):
+        """
+        Run the complete daily pipeline with optional COO review
+        
+        Args:
+            skip_review: If True, skip COO review and upload all matched cases (NOT RECOMMENDED)
+            upload_approved_file: Path to COO-approved review file to process
+        """
         print("\n" + "=" * 80)
         if self.test_mode:
             print(f"🧪 DAILY MAIL ROOM PIPELINE - TEST MODE ({self.test_file_limit} FILES)")
@@ -845,6 +1059,33 @@ class DailyPipelineOrchestrator:
         start_time = datetime.now()
         
         try:
+            # If we have an approved file, process it and upload
+            if upload_approved_file:
+                print("\n📋 UPLOAD MODE: Processing COO-approved cases")
+                
+                # Authenticate
+                self.authenticate_google_drive()
+                self.create_output_folders_if_needed()
+                
+                # Process the COO-approved review file
+                self.process_coo_approvals(upload_approved_file)
+                
+                # Upload approved cases
+                self.upload_matched_cases_to_logiqs()
+                
+                # Move files
+                self.move_files_to_output_folders()
+                
+                # Generate final reports
+                self.generate_reports()
+                
+                # Cleanup
+                self.cleanup()
+                
+                print("\n✅ APPROVED CASES UPLOADED")
+                return
+            
+            # Normal pipeline flow
             # Step 1: Authenticate
             self.authenticate_google_drive()
             
@@ -861,16 +1102,34 @@ class DailyPipelineOrchestrator:
             # Step 4: Extract and match
             self.extract_and_match(files)
             
-            # Step 5: Upload matched cases to Logiqs (document + task)
-            self.upload_matched_cases_to_logiqs()
+            # Step 5: Generate COO review sheet (UNLESS skip_review is True or test_mode)
+            if not skip_review and self.matched_cases and not self.test_mode:
+                review_file = self.generate_coo_review_sheet()
+                
+                # PAUSE HERE - Don't upload yet
+                print("\n⏸️  Pipeline paused. Please review and approve cases before continuing.")
+                
+                # Save processing history for downloaded files
+                for file_info in files:
+                    self.save_to_history(
+                        file_info['drive_id'],
+                        file_info['filename'],
+                        file_info.get('status', 'pending_coo_review')
+                    )
+                
+                return
             
-            # Step 6: Move files to output folders
+            # Step 6: Upload matched cases to Logiqs (only if skip_review or test_mode)
+            if skip_review or self.test_mode:
+                self.upload_matched_cases_to_logiqs()
+            
+            # Step 7: Move files to output folders
             self.move_files_to_output_folders()
             
-            # Step 7: Generate reports
+            # Step 8: Generate reports
             self.generate_reports()
             
-            # Step 8: Save processing history
+            # Step 9: Save processing history
             for file_info in files:
                 self.save_to_history(
                     file_info['drive_id'],
@@ -878,7 +1137,7 @@ class DailyPipelineOrchestrator:
                     file_info.get('status', 'processed')
                 )
             
-            # Step 9: Cleanup
+            # Step 10: Cleanup
             self.cleanup()
             
             # Final summary
@@ -938,6 +1197,32 @@ if __name__ == "__main__":
     
     # Check for test mode flag
     test_mode = '--test' in sys.argv
+    skip_review = '--skip-review' in sys.argv
+    
+    # Check for upload approved flag
+    upload_approved_file = None
+    for arg in sys.argv:
+        if arg.startswith('--upload-approved='):
+            upload_approved_file = arg.split('=')[1]
+        elif arg == '--upload-approved':
+            # Find the most recent COO review file
+            review_dir = 'COO_REVIEW'
+            if os.path.exists(review_dir):
+                review_files = [f for f in os.listdir(review_dir) if f.startswith('COO_REVIEW_MATCHED_CASES_') and f.endswith('.xlsx')]
+                if review_files:
+                    review_files.sort(reverse=True)  # Most recent first
+                    upload_approved_file = os.path.join(review_dir, review_files[0])
+                    print(f"\n📋 Using most recent review file: {upload_approved_file}")
+                else:
+                    print("\n❌ No review files found in COO_REVIEW/")
+                    print("   Please run the pipeline first to generate a review file:")
+                    print("   python3 daily_pipeline_orchestrator.py")
+                    sys.exit(1)
+            else:
+                print("\n❌ COO_REVIEW directory not found")
+                print("   Please run the pipeline first to generate a review file:")
+                print("   python3 daily_pipeline_orchestrator.py")
+                sys.exit(1)
     
     # Check for custom file limit
     test_limit = 5  # default
@@ -957,6 +1242,14 @@ if __name__ == "__main__":
         print("• Safe to test without affecting production")
         print("=" * 80)
     
+    if skip_review and not test_mode:
+        print("\n⚠️  WARNING: Skipping COO review (--skip-review flag)")
+        print("   All matched cases will be uploaded automatically")
+        print("   This is NOT RECOMMENDED for production use")
+        print("   Press Ctrl+C to cancel or wait 5 seconds to continue...")
+        import time
+        time.sleep(5)
+    
     orchestrator = DailyPipelineOrchestrator(test_mode=test_mode, test_file_limit=test_limit)
-    orchestrator.run()
+    orchestrator.run(skip_review=skip_review, upload_approved_file=upload_approved_file)
 
