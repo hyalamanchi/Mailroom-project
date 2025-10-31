@@ -1,0 +1,80 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+ENV/
+env/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Google Drive API Credentials
+credentials.json
+token.pickle
+service-account-key.json
+.env
+
+# Temporary Processing Files
+TEMP_PROCESSING/
+TEMP_DAILY_PROCESSING/
+TEMP_UPLOAD_BATCH/
+TEMP_TEST_UPLOAD/
+
+# Output and Reports (keep structure, ignore data)
+*.json
+!requirements.json
+*.xlsx
+*.csv
+LOGICS_DATA_*.json
+PROCESSING_HISTORY.json
+
+# Reports Folders (keep structure in git)
+DAILY_REPORTS/*
+!DAILY_REPORTS/.gitkeep
+UPLOAD_RESULTS/*
+!UPLOAD_RESULTS/.gitkeep
+MAIL_ROOM_RESULTS/*
+!MAIL_ROOM_RESULTS/.gitkeep
+UPLOAD_READY/*
+!UPLOAD_READY/.gitkeep
+
+# Test Files
+test_upload_results.json
+TEST_UPLOAD/
+
+# Logs
+*.log
+logs/
+
+# OS
+Thumbs.db
+.DS_Store
+
