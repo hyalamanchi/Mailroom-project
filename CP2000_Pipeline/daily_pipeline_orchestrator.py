@@ -61,8 +61,9 @@ class DailyPipelineOrchestrator:
             import json
             with open('.test_folders.json', 'r') as f:
                 test_folders = json.load(f)
-            self.test_matched_folder = test_folders.get('test_matched_id')
-            self.test_unmatched_folder = test_folders.get('test_unmatched_id')
+            self.test_matched_folder = test_folders.get('matched_id')
+            self.test_unmatched_folder = test_folders.get('unmatched_id')
+            print(f"🧪 Loaded TEST folders: MATCHED={self.test_matched_folder}, UNMATCHED={self.test_unmatched_folder}")
         else:
             self.test_matched_folder = None
             self.test_unmatched_folder = None
@@ -451,18 +452,27 @@ class DailyPipelineOrchestrator:
         print("\n📦 STEP 3: ORGANIZING FILES IN GOOGLE DRIVE")
         print("=" * 80)
         
+        # In test mode, use TEST folders instead of production folders
         if self.test_mode:
-            print("⚠️  TEST MODE: Files will NOT be moved (dry run only)")
-            print(f"   Would move {len(self.matched_cases)} files to CP2000_MATCHED")
-            print(f"   Would move {len(self.unmatched_cases)} files to CP2000_UNMATCHED")
-            return
+            print("🧪 TEST MODE: Moving files to TEST/MATCHED and TEST/UNMATCHED folders")
+            matched_folder = self.test_matched_folder
+            unmatched_folder = self.test_unmatched_folder
+            
+            if not matched_folder or not unmatched_folder:
+                print("⚠️  TEST folders not configured - skipping file movement")
+                print("   💡 Run: python3 -c \"from daily_pipeline_orchestrator import setup_test_folders; setup_test_folders()\"")
+                return
+        else:
+            matched_folder = self.folders['output_matched']
+            unmatched_folder = self.folders['output_unmatched']
         
-            # Move matched files to Folder B
-        print(f"\n✅ Moving {len(self.matched_cases)} matched files to CP2000_MATCHED...")
+        # Move matched files to appropriate folder
+        folder_name = "TEST/MATCHED" if self.test_mode else "CP2000_MATCHED"
+        print(f"\n✅ Moving {len(self.matched_cases)} matched files to {folder_name}...")
         for i, file_info in enumerate(self.matched_cases, 1):
             try:
                 file_id = file_info['drive_id']
-                new_parents = self.folders['output_matched']
+                new_parents = matched_folder
                 
                 # IMPROVED: Move with retry logic and rate limiting
                 def move_call():
@@ -485,14 +495,15 @@ class DailyPipelineOrchestrator:
             except Exception as e:
                 print(f"   ❌ Error moving {file_info['filename']}: {self._sanitize_for_log(str(e))}")
         
-        print(f"   ✅ Moved {len(self.matched_cases)} files to CP2000_MATCHED")
+        print(f"   ✅ Moved {len(self.matched_cases)} files to {folder_name}")
         
-        # Move unmatched files to Folder C
-        print(f"\n⚠️  Moving {len(self.unmatched_cases)} unmatched files to CP2000_UNMATCHED...")
+        # Move unmatched files to appropriate folder
+        folder_name = "TEST/UNMATCHED" if self.test_mode else "CP2000_UNMATCHED"
+        print(f"\n⚠️  Moving {len(self.unmatched_cases)} unmatched files to {folder_name}...")
         for i, file_info in enumerate(self.unmatched_cases, 1):
             try:
                 file_id = file_info['drive_id']
-                new_parents = self.folders['output_unmatched']
+                new_parents = unmatched_folder
                 
                 # IMPROVED: Move with retry logic and rate limiting
                 def move_call():
@@ -515,7 +526,7 @@ class DailyPipelineOrchestrator:
             except Exception as e:
                 print(f"   ❌ Error moving {file_info['filename']}: {self._sanitize_for_log(str(e))}")
         
-        print(f"   ✅ Moved {len(self.unmatched_cases)} files to CP2000_UNMATCHED")
+        print(f"   ✅ Moved {len(self.unmatched_cases)} files to {folder_name}")
     
     def upload_file_to_drive(self, local_path, folder_id, filename):
         """Upload a file to Google Drive"""

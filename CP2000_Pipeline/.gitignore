@@ -41,6 +41,7 @@ credentials.json
 token.pickle
 service-account-key.json
 .env
+.test_folders.json
 
 # Temporary Processing Files
 TEMP_PROCESSING/
