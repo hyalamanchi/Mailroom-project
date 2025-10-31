@@ -80,10 +80,16 @@ pip install -r requirements.txt
 
 4. **Configure environment variables**
 ```bash
-# Create .env file
-LOGIQS_API_KEY=your_api_key_here
-LOGIQS_SECRET_TOKEN=your_secret_token_here
+# Copy template and edit with your credentials
+cp env.example .env
+nano .env  # or use any text editor
 ```
+
+5. **Validate your setup**
+```bash
+python3 validate_setup.py
+```
+This will check all requirements and provide helpful error messages if anything is missing.
 
 ## 🎯 Usage
 

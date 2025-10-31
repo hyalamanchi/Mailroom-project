@@ -34,8 +34,22 @@ class LogiqsDocumentUploader:
     
     def __init__(self):
         # Logiqs API configuration
-        self.api_key = os.getenv('LOGIQS_API_KEY', '4917fa0ce4694529a9b97ead1a60c932')
-        self.secret_token = os.getenv('LOGIQS_SECRET_TOKEN', '1534a639-8422-4524-b2a4-6ea161d42014')
+        self.api_key = os.getenv('LOGIQS_API_KEY')
+        self.secret_token = os.getenv('LOGIQS_SECRET_TOKEN')
+        
+        # Validate required credentials
+        if not self.api_key:
+            raise ValueError(
+                "❌ LOGIQS_API_KEY not found!\n"
+                "💡 Please set it in your .env file:\n"
+                "   LOGIQS_API_KEY=your_api_key_here"
+            )
+        if not self.secret_token:
+            raise ValueError(
+                "❌ LOGIQS_SECRET_TOKEN not found!\n"
+                "💡 Please set it in your .env file:\n"
+                "   LOGIQS_SECRET_TOKEN=your_secret_token_here"
+            )
         
         # API endpoints
         self.document_url = "https://tps.logiqs.com/publicapi/2020-02-22/documents/casedocument"
