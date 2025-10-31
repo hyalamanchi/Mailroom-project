@@ -56,6 +56,10 @@ class DailyPipelineOrchestrator:
         self.max_retries = 3  # Retry failed API calls
         self.retry_delay = 2  # Initial retry delay in seconds (exponential backoff)
         
+        # Processing history for incremental processing
+        self.history_file = 'PROCESSING_HISTORY.json'
+        self.processed_files = self.load_processing_history()
+        
         # Load test folder IDs if in test mode
         if test_mode and os.path.exists('.test_folders.json'):
             import json
@@ -102,10 +106,38 @@ class DailyPipelineOrchestrator:
         # Initialize searcher
         self.logics_searcher = LogicsCaseSearcher()
         
+        # Initialize Logiqs uploader (for document upload and task creation)
+        from upload_to_logiqs import LogiqsDocumentUploader
+        self.logiqs_uploader = LogiqsDocumentUploader() if not test_mode else None
+        
         if self.test_mode:
             print(f"📋 Daily Pipeline Orchestrator initialized (TEST MODE - {self.test_file_limit} files only)")
         else:
             print("📋 Daily Pipeline Orchestrator initialized")
+    
+    def load_processing_history(self):
+        """Load processing history to avoid reprocessing files"""
+        if os.path.exists(self.history_file):
+            try:
+                with open(self.history_file, 'r') as f:
+                    return json.load(f)
+            except:
+                return {}
+        return {}
+    
+    def save_to_history(self, file_id, filename, status):
+        """Save processed file to history"""
+        self.processed_files[file_id] = {
+            'filename': filename,
+            'status': status,
+            'processed_at': datetime.now().isoformat()
+        }
+        with open(self.history_file, 'w') as f:
+            json.dump(self.processed_files, f, indent=2)
+    
+    def is_already_processed(self, file_id):
+        """Check if file was already processed"""
+        return file_id in self.processed_files
     
     def _sanitize_for_log(self, text: str) -> str:
         """
@@ -316,6 +348,11 @@ class DailyPipelineOrchestrator:
                     
                     self._api_call_with_retry(download_call)
                     
+                    # Check if already processed (skip in non-test mode)
+                    if not self.test_mode and self.is_already_processed(file['id']):
+                        print(f"   ⏭️  Skipping (already processed): {file['name']}")
+                        continue
+                    
                     downloaded_files.append({
                         'local_path': local_path,
                         'filename': file['name'],
@@ -454,6 +491,73 @@ class DailyPipelineOrchestrator:
         print(f"\n📊 Matching Results:")
         print(f"   ✅ Matched: {self.processing_stats['matched']}")
         print(f"   ⚠️  Unmatched: {self.processing_stats['unmatched']}")
+    
+    def upload_matched_cases_to_logiqs(self):
+        """Upload matched cases to Logiqs CRM with document and task creation"""
+        if not self.matched_cases:
+            print("\n⏭️  No matched cases to upload")
+            return
+        
+        if self.test_mode:
+            print("\n🧪 TEST MODE: Skipping Logiqs upload (would upload in production)")
+            print(f"   Would upload {len(self.matched_cases)} documents to Logiqs")
+            return
+        
+        if not self.logiqs_uploader:
+            print("\n⚠️  Logiqs uploader not initialized - skipping upload")
+            return
+        
+        print("\n📤 UPLOADING MATCHED CASES TO LOGIQS")
+        print("=" * 80)
+        
+        for i, file_info in enumerate(self.matched_cases, 1):
+            try:
+                case_id = file_info.get('case_id')
+                local_path = file_info.get('local_path')
+                filename = file_info.get('filename')
+                extracted_data = file_info.get('extracted_data', {})
+                
+                print(f"\n{i}/{len(self.matched_cases)} - Uploading to Case {case_id}")
+                print(f"   📄 File: {filename}")
+                
+                # Upload document
+                upload_result = self.logiqs_uploader.upload_to_logiqs(
+                    case_id=case_id,
+                    file_path=local_path,
+                    comment=f"CP2000 Notice - Auto-uploaded {datetime.now().strftime('%Y-%m-%d')}"
+                )
+                
+                if upload_result.get('success'):
+                    print(f"   ✅ Document uploaded successfully")
+                    
+                    # Create task
+                    notice_date = extracted_data.get('notice_date', 'Unknown')
+                    due_date = extracted_data.get('response_due_date', datetime.now().strftime('%Y-%m-%d'))
+                    
+                    task_result = self.logiqs_uploader.create_task(
+                        case_id=case_id,
+                        subject=f"Review CP2000 Notice - {notice_date}",
+                        due_date=due_date,
+                        comments=f"CP2000 notice uploaded. Response required by {due_date}.",
+                        priority=2  # High priority
+                    )
+                    
+                    if task_result.get('success'):
+                        print(f"   ✅ Task created (ID: {task_result.get('task_id')})")
+                        self.processing_stats['uploaded'] += 1
+                    else:
+                        print(f"   ⚠️  Task creation failed: {task_result.get('error')}")
+                else:
+                    print(f"   ❌ Upload failed: {upload_result.get('error')}")
+                    self.processing_stats['failed'] += 1
+                
+            except Exception as e:
+                print(f"   ❌ Error: {self._sanitize_for_log(str(e))}")
+                self.processing_stats['failed'] += 1
+        
+        print(f"\n📊 Upload Summary:")
+        print(f"   ✅ Uploaded: {self.processing_stats['uploaded']}")
+        print(f"   ❌ Failed: {self.processing_stats['failed']}")
     
     def move_files_to_output_folders(self):
         """Move files to appropriate Google Drive folders"""
@@ -757,13 +861,24 @@ class DailyPipelineOrchestrator:
             # Step 4: Extract and match
             self.extract_and_match(files)
             
-            # Step 5: Move files to output folders
+            # Step 5: Upload matched cases to Logiqs (document + task)
+            self.upload_matched_cases_to_logiqs()
+            
+            # Step 6: Move files to output folders
             self.move_files_to_output_folders()
             
-            # Step 6: Generate reports
+            # Step 7: Generate reports
             self.generate_reports()
             
-            # Step 7: Cleanup
+            # Step 8: Save processing history
+            for file_info in files:
+                self.save_to_history(
+                    file_info['drive_id'],
+                    file_info['filename'],
+                    file_info.get('status', 'processed')
+                )
+            
+            # Step 9: Cleanup
             self.cleanup()
             
             # Final summary
