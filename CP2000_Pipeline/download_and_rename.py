@@ -28,11 +28,9 @@ class GoogleDriveDownloader:
         self.SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
         self.service = None
         
-        # Google Drive folders
+        # Google Drive folder
         self.folders = {
-            'cp2000_incoming': '1CGl9pdVWqGssSS3ausbw88MoBWvS65zl',
-            'cp2000newbatch_incoming': '1qLKRE0HBtpqu1zf20fWjAkDsXKdPmkIK',
-            'cp2000newbatch2_incoming': '10TVBMsMLBizE-vGmY2vKOolCwSlXK2s8'
+            'main_folder': '18e8lj66Mdr7PFGhJ7ySYtsnkNgiuczmx'
         }
         
         # Output directory

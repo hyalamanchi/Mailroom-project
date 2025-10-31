@@ -45,12 +45,10 @@ class DailyPipelineOrchestrator:
         self.SCOPES = ['https://www.googleapis.com/auth/drive']
         self.service = None
         
-        # Google Drive Folder IDs (you'll need to create these folders)
+        # Google Drive Folder IDs
         self.folders = {
-            # Input folders (existing)
-            'input_cp2000': '1CGl9pdVWqGssSS3ausbw88MoBWvS65zl',
-            'input_newbatch': '1qLKRE0HBtpqu1zf20fWjAkDsXKdPmkIK',
-            'input_newbatch2': '10TVBMsMLBizE-vGmY2vKOolCwSlXK2s8',
+            # Input folder - Main CP2000 folder
+            'input_main': '18e8lj66Mdr7PFGhJ7ySYtsnkNgiuczmx',
             
             # Output folders (to be created or configured)
             'output_matched': None,    # Folder B - Matched cases (auto upload)
@@ -161,11 +159,9 @@ class DailyPipelineOrchestrator:
         
         all_files = []
         
-        # Download from all input folders
+        # Download from main input folder
         input_folders = {
-            'cp2000_incoming': self.folders['input_cp2000'],
-            'newbatch_incoming': self.folders['input_newbatch'],
-            'newbatch2_incoming': self.folders['input_newbatch2']
+            'main_folder': self.folders['input_main']
         }
         
         for folder_name, folder_id in input_folders.items():
