@@ -469,10 +469,16 @@ class DailyPipelineOrchestrator:
             )
             if file_id:
                 print(f"   ✅ Matched report uploaded to {folder_name_matched} folder")
-            
-            # Clean up local file
-            os.remove(matched_excel)
-            os.remove(matched_json)
+                # Clean up local file only if upload succeeded
+                os.remove(matched_excel)
+                os.remove(matched_json)
+            else:
+                if self.test_mode:
+                    print(f"   📁 Upload failed - Report saved locally: {matched_excel}")
+                else:
+                    # In production, still clean up even if upload failed
+                    os.remove(matched_excel)
+                    os.remove(matched_json)
         
         # Save unmatched cases report
         if self.unmatched_cases:
@@ -510,13 +516,23 @@ class DailyPipelineOrchestrator:
             )
             if file_id:
                 print(f"   ✅ Unmatched report uploaded to {folder_name_unmatched} folder")
-            
-            # Clean up local file
-            os.remove(unmatched_excel)
-            os.remove(unmatched_json)
+                # Clean up local file only if upload succeeded
+                os.remove(unmatched_excel)
+                os.remove(unmatched_json)
+            else:
+                if self.test_mode:
+                    print(f"   📁 Upload failed - Report saved locally: {unmatched_excel}")
+                else:
+                    # In production, still clean up even if upload failed
+                    os.remove(unmatched_excel)
+                    os.remove(unmatched_json)
         
-        print(f"\n   📊 All reports uploaded to Google Drive")
-        print(f"   🗑️  Local report files cleaned up")
+        if self.test_mode:
+            print(f"\n   📊 Reports saved locally (upload not available with service account)")
+            print(f"   📁 Check DAILY_REPORTS/ folder for test outputs")
+        else:
+            print(f"\n   📊 All reports uploaded to Google Drive")
+            print(f"   🗑️  Local report files cleaned up")
     
     def cleanup(self):
         """Clean up temporary files and local report directories"""
@@ -527,10 +543,15 @@ class DailyPipelineOrchestrator:
             shutil.rmtree(self.temp_dir)
             print("   ✅ Temporary PDF files deleted")
         
-        # Clean up DAILY_REPORTS directory (reports are in Google Drive now)
-        if os.path.exists(self.output_dir):
-            shutil.rmtree(self.output_dir)
-            print("   ✅ Local report directory cleaned (reports saved to Google Drive)")
+        # In test mode, keep reports locally if they exist
+        if self.test_mode:
+            if os.path.exists(self.output_dir):
+                print("   📁 Test reports kept in DAILY_REPORTS/ folder for review")
+        else:
+            # Clean up DAILY_REPORTS directory in production (reports are in Google Drive)
+            if os.path.exists(self.output_dir):
+                shutil.rmtree(self.output_dir)
+                print("   ✅ Local report directory cleaned (reports saved to Google Drive)")
     
     def run(self):
         """Run the complete daily pipeline"""
