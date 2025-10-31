@@ -44,6 +44,17 @@ class DailyPipelineOrchestrator:
         self.SCOPES = ['https://www.googleapis.com/auth/drive']
         self.service = None
         
+        # Load test folder IDs if in test mode
+        if test_mode and os.path.exists('.test_folders.json'):
+            import json
+            with open('.test_folders.json', 'r') as f:
+                test_folders = json.load(f)
+            self.test_matched_folder = test_folders.get('test_matched_id')
+            self.test_unmatched_folder = test_folders.get('test_unmatched_id')
+        else:
+            self.test_matched_folder = None
+            self.test_unmatched_folder = None
+        
         # Google Drive Folder IDs
         self.folders = {
             # Input folder - Main CP2000 folder
@@ -405,7 +416,20 @@ class DailyPipelineOrchestrator:
         """Generate comprehensive daily reports and upload to Google Drive"""
         print("\n📊 STEP 4: GENERATING DAILY REPORTS")
         print("=" * 80)
-        print("📤 Reports will be saved to Google Drive")
+        
+        # Determine target folders based on test mode
+        if self.test_mode and self.test_matched_folder and self.test_unmatched_folder:
+            print("🧪 TEST MODE: Reports will be saved to TEST folder in Google Drive")
+            matched_folder_id = self.test_matched_folder
+            unmatched_folder_id = self.test_unmatched_folder
+            folder_name_matched = "TEST/MATCHED"
+            folder_name_unmatched = "TEST/UNMATCHED"
+        else:
+            print("📤 Reports will be saved to Google Drive")
+            matched_folder_id = self.folders['output_matched']
+            unmatched_folder_id = self.folders['output_unmatched']
+            folder_name_matched = "CP2000_MATCHED"
+            folder_name_unmatched = "CP2000_UNMATCHED"
         
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         
@@ -437,14 +461,14 @@ class DailyPipelineOrchestrator:
             matched_df.to_excel(matched_excel, index=False, engine='openpyxl')
             
             # Upload to Google Drive
-            print(f"   📤 Uploading matched report to Google Drive...")
+            print(f"   📤 Uploading matched report to {folder_name_matched}...")
             file_id, link = self.upload_file_to_drive(
                 matched_excel,
-                self.folders['output_matched'],
+                matched_folder_id,
                 f'MATCHED_REPORT_{timestamp}.xlsx'
             )
             if file_id:
-                print(f"   ✅ Matched report uploaded to CP2000_MATCHED folder")
+                print(f"   ✅ Matched report uploaded to {folder_name_matched} folder")
             
             # Clean up local file
             os.remove(matched_excel)
@@ -478,14 +502,14 @@ class DailyPipelineOrchestrator:
             unmatched_df.to_excel(unmatched_excel, index=False, engine='openpyxl')
             
             # Upload to Google Drive
-            print(f"   📤 Uploading unmatched report to Google Drive...")
+            print(f"   📤 Uploading unmatched report to {folder_name_unmatched}...")
             file_id, link = self.upload_file_to_drive(
                 unmatched_excel,
-                self.folders['output_unmatched'],
+                unmatched_folder_id,
                 f'UNMATCHED_REPORT_{timestamp}.xlsx'
             )
             if file_id:
-                print(f"   ✅ Unmatched report uploaded to CP2000_UNMATCHED folder")
+                print(f"   ✅ Unmatched report uploaded to {folder_name_unmatched} folder")
             
             # Clean up local file
             os.remove(unmatched_excel)
