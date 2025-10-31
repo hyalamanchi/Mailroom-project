@@ -107,12 +107,34 @@ class LogicsCaseSearcher:
             if first_name:
                 payload["first_name"] = first_name.strip().title()  # Normalize case
             
-            logger.info(f"Searching Logiqs for SSN: {ssn_last_4}, Name: {last_name}")
+            logger.info(f"Searching Logics for SSN: ***-**-{ssn_last_4}, Name: {last_name}")
+            logger.debug(f"   Request URL: {url}")
+            logger.debug(f"   Payload: {payload}")
             
             # Use POST instead of GET for the /case/match endpoint
             response = self._make_request_with_retry('POST', url, json=payload)
             
             if response:
+                # Log response status for debugging
+                logger.debug(f"   Response Status: {response.status_code}")
+                
+                # Check for specific error responses
+                if response.status_code == 403:
+                    error_data = response.json()
+                    error_msg = error_data.get('detail', 'Access forbidden')
+                    
+                    if 'Invalid or expired API Key' in error_msg:
+                        logger.error("❌ Logics API Key is invalid or expired")
+                        logger.error("   Please contact Logics admin to verify API key permissions")
+                        logger.error(f"   API Key (first 10 chars): {self.api_key[:10]}...")
+                    elif 'X-API-Key header is missing' in error_msg:
+                        logger.error("❌ X-API-Key header not being sent correctly")
+                    else:
+                        logger.error(f"❌ API returned 403: {error_msg}")
+                    
+                    return None
+                
+                # Success - parse response
                 data = response.json()
                 
                 # Enhanced response validation
@@ -174,11 +196,11 @@ class LogicsCaseSearcher:
             
             # Prepare the file for upload
             with open(file_path, 'rb') as f:
-                files = {
+            files = {
                     'file': (os.path.basename(file_path), f, 'application/pdf')
-                }
+            }
             
-                data = {
+            data = {
                     'document_type': document_type,
                     'upload_timestamp': datetime.now().isoformat()
                 }
