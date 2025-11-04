@@ -11,7 +11,7 @@ import time
 import logging
 from datetime import datetime
 from typing import List, Dict, Optional
-from google.oauth2 import service_account
+from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 import requests
@@ -23,11 +23,11 @@ logger = logging.getLogger(__name__)
 class SheetApprovalAutomation:
     """Automates task creation and document upload when cases are approved in Google Sheet"""
     
-    def __init__(self, credentials_path: str = 'credentials.json'):
+    def __init__(self, credentials_path: str = 'token.json'):
         """Initialize with Google credentials and Logics API"""
         try:
-            # Google Services
-            self.credentials = service_account.Credentials.from_service_account_file(
+            # Google Services - Use OAuth credentials
+            self.credentials = Credentials.from_authorized_user_file(
                 credentials_path,
                 scopes=[
                     'https://www.googleapis.com/auth/spreadsheets',
@@ -67,10 +67,10 @@ class SheetApprovalAutomation:
         
         while True:
             try:
-                # Read sheet data
+                # Read sheet data - starting from row 8 (after headers and instructions)
                 result = self.sheets_service.spreadsheets().values().get(
                     spreadsheetId=spreadsheet_id,
-                    range='Matched Cases!A2:T1000'  # Skip header row
+                    range='Matched Cases!A8:M1000'  # Start from row 8 (first data row)
                 ).execute()
                 
                 values = result.get('values', [])
@@ -81,20 +81,21 @@ class SheetApprovalAutomation:
                     continue
                 
                 # Process each row
-                for idx, row in enumerate(values, start=2):  # Start at row 2 (after header)
-                    if len(row) < 13:  # Minimum required columns
+                for idx, row in enumerate(values, start=8):  # Start at row 8 (first data row)
+                    if len(row) < 12:  # Minimum required columns (need at least up to Status column)
                         continue
                     
-                    row_key = f"{idx}_{row[1] if len(row) > 1 else ''}"  # Row index + Case ID
+                    row_key = f"{idx}_{row[0] if len(row) > 0 else ''}"  # Row index + Case ID
                     
                     # Check if this row was already processed
                     if row_key in processed_rows:
                         continue
                     
-                    status = row[0] if len(row) > 0 else ''
+                    # Status is at column index 11 (column L)
+                    status = row[11] if len(row) > 11 else ''
                     
                     # Process if approved
-                    if status.strip().lower() == 'approve':
+                    if status.strip().upper() == 'APPROVE':
                         logger.info(f"\n{'='*60}")
                         logger.info(f"✅ APPROVED case found in row {idx}")
                         
@@ -129,10 +130,10 @@ class SheetApprovalAutomation:
         processed_count = 0
         
         try:
-            # Read sheet data
+            # Read sheet data - starting from row 8 (after headers and instructions)
             result = self.sheets_service.spreadsheets().values().get(
                 spreadsheetId=spreadsheet_id,
-                range='Matched Cases!A2:T1000'
+                range='Matched Cases!A8:M1000'
             ).execute()
             
             values = result.get('values', [])
@@ -142,15 +143,15 @@ class SheetApprovalAutomation:
                 return 0
             
             # Process each row
-            for idx, row in enumerate(values, start=2):
-                if len(row) < 13:
+            for idx, row in enumerate(values, start=8):
+                if len(row) < 12:  # Need at least up to Status column
                     continue
                 
-                status = row[0] if len(row) > 0 else ''
-                processing_status = row[18] if len(row) > 18 else ''
+                # Status is at column index 11
+                status = row[11] if len(row) > 11 else ''
                 
-                # Process if approved and not already processed
-                if status.strip().lower() == 'approve' and processing_status != 'Completed':
+                # Process if approved
+                if status.strip().upper() == 'APPROVE':
                     logger.info(f"\n{'='*60}")
                     logger.info(f"✅ Processing approved case in row {idx}")
                     
@@ -170,59 +171,63 @@ class SheetApprovalAutomation:
     def _process_approved_case(self, row: List, row_idx: int, spreadsheet_id: str) -> bool:
         """Process a single approved case"""
         try:
-            # Extract case data
-            case_id = row[1] if len(row) > 1 else ''
-            taxpayer_name = row[2] if len(row) > 2 else ''
+            # Extract case data with correct column indices
+            # Column mapping: 0=Case_ID, 1=Original_Filename, 2=Proposed_Filename, 3=Taxpayer_Name,
+            # 4=SSN_Last_4, 5=Letter_Type, 6=Tax_Year, 7=Notice_Date, 8=Due_Date, 
+            # 9=Source_Folder, 10=Match_Confidence, 11=Status, 12=Notes
+            
+            case_id = row[0] if len(row) > 0 else ''
+            original_filename = row[1] if len(row) > 1 else ''
+            taxpayer_name = row[3] if len(row) > 3 else ''
             tax_year = row[6] if len(row) > 6 else ''
             notice_date = row[7] if len(row) > 7 else ''
-            response_due_date = row[8] if len(row) > 8 else ''
-            notice_ref_number = row[11] if len(row) > 11 else ''
-            filename = row[12] if len(row) > 12 else ''
+            due_date = row[8] if len(row) > 8 else ''
+            letter_type = row[5] if len(row) > 5 else 'CP2000'
             
             logger.info(f"📋 Case Details:")
             logger.info(f"   Case ID: {case_id}")
             logger.info(f"   Name: {taxpayer_name}")
-            logger.info(f"   File: {filename}")
+            logger.info(f"   File: {original_filename}")
+            logger.info(f"   Tax Year: {tax_year}")
+            logger.info(f"   Notice Date: {notice_date}")
+            logger.info(f"   Due Date: {due_date}")
             
-            # Update processing status
-            self._update_cell_status(spreadsheet_id, row_idx, 'S', 'Processing...')
+            # Update Notes column with status
+            self._update_cell_status(spreadsheet_id, row_idx, 'M', 'Processing...')
             
             # Step 1: Create task in Logics
             logger.info("📝 Creating task in Logics...")
             task_created = self._create_task(
-                case_id, notice_date, tax_year, notice_ref_number, response_due_date
+                case_id, notice_date, tax_year, letter_type, due_date
             )
             
             if not task_created:
-                self._update_cell_status(spreadsheet_id, row_idx, 'S', 'Task Creation Failed')
-                self._update_cell_status(spreadsheet_id, row_idx, 'T', 'Not Uploaded')
+                self._update_cell_status(spreadsheet_id, row_idx, 'M', '❌ Task Creation Failed')
                 return False
             
             # Step 2: Upload document
             logger.info("📤 Uploading document to Logics...")
-            doc_uploaded = self._upload_document(case_id, filename, tax_year)
+            doc_uploaded = self._upload_document(case_id, original_filename, tax_year)
             
             if doc_uploaded:
-                self._update_cell_status(spreadsheet_id, row_idx, 'S', 'Completed')
-                self._update_cell_status(spreadsheet_id, row_idx, 'T', 'Uploaded Successfully')
+                self._update_cell_status(spreadsheet_id, row_idx, 'M', '✅ Completed - Task Created & Document Uploaded')
                 logger.info("✅ Case processing completed successfully!")
                 return True
             else:
-                self._update_cell_status(spreadsheet_id, row_idx, 'S', 'Task Created')
-                self._update_cell_status(spreadsheet_id, row_idx, 'T', 'Upload Failed')
+                self._update_cell_status(spreadsheet_id, row_idx, 'M', '⚠️ Task Created, Upload Failed')
                 logger.warning("⚠️ Task created but document upload failed")
                 return True  # Still consider it successful since task was created
             
         except Exception as e:
             logger.error(f"❌ Error processing case: {str(e)}")
             try:
-                self._update_cell_status(spreadsheet_id, row_idx, 'S', f'Error: {str(e)[:50]}')
+                self._update_cell_status(spreadsheet_id, row_idx, 'M', f'❌ Error: {str(e)[:40]}')
             except:
                 pass
             return False
     
     def _create_task(self, case_id: str, notice_date: str, tax_year: str, 
-                    ref_number: str, due_date: str) -> bool:
+                    letter_type: str, due_date: str) -> bool:
         """Create task in Logics system"""
         try:
             url = f"{self.base_url}/tasks/create"
@@ -232,13 +237,13 @@ class SheetApprovalAutomation:
                 'taskType': 'CP2000_REVIEW',
                 'priority': 'HIGH',
                 'dueDate': due_date or notice_date,
-                'title': f'CP2000 Notice Review - Tax Year {tax_year}',
-                'description': f'Review and respond to CP2000 notice. Notice Date: {notice_date}, Reference: {ref_number}',
+                'title': f'{letter_type} Notice Review - Tax Year {tax_year}',
+                'description': f'Review and respond to {letter_type} notice. Notice Date: {notice_date}, Due Date: {due_date}',
                 'details': {
                     'taxYear': tax_year,
                     'noticeDate': notice_date,
-                    'referenceNumber': ref_number,
-                    'noticeType': 'CP2000',
+                    'dueDate': due_date,
+                    'noticeType': letter_type,
                     'status': 'NEW',
                     'source': 'Automated Pipeline'
                 }
@@ -250,6 +255,7 @@ class SheetApprovalAutomation:
             
             if response.status_code in [200, 201]:
                 logger.info(f"✅ Task created successfully for Case {case_id}")
+                logger.debug(f"Response: {response.text}")
                 return True
             else:
                 logger.error(f"❌ Task creation failed: {response.status_code} - {response.text}")
@@ -267,7 +273,10 @@ class SheetApprovalAutomation:
             
             if not file_path:
                 logger.error(f"❌ Document not found: {filename}")
+                logger.info(f"   Searched for: {filename}")
                 return False
+            
+            logger.info(f"📁 Found document at: {file_path}")
             
             url = f"{self.base_url}/documents/upload"
             
@@ -278,15 +287,18 @@ class SheetApprovalAutomation:
                 }
                 
                 data = {
-                    'caseId': case_id,
+                    'caseId': str(case_id),
                     'documentType': 'CP2000',
-                    'taxYear': tax_year,
+                    'taxYear': str(tax_year),
                     'description': f'CP2000 Notice - Tax Year {tax_year}',
                     'category': 'IRS_CORRESPONDENCE'
                 }
                 
                 # Note: Remove Content-Type header for multipart/form-data
                 headers = {"X-API-Key": self.api_key}
+                
+                logger.debug(f"Upload data: {data}")
+                logger.debug(f"File size: {os.path.getsize(file_path)} bytes")
                 
                 response = requests.post(
                     url,
@@ -298,6 +310,7 @@ class SheetApprovalAutomation:
             
             if response.status_code in [200, 201]:
                 logger.info(f"✅ Document uploaded successfully for Case {case_id}")
+                logger.debug(f"Response: {response.text}")
                 return True
             else:
                 logger.error(f"❌ Document upload failed: {response.status_code} - {response.text}")
@@ -305,23 +318,35 @@ class SheetApprovalAutomation:
                 
         except Exception as e:
             logger.error(f"❌ Error uploading document: {str(e)}")
+            import traceback
+            logger.debug(traceback.format_exc())
             return False
     
     def _find_document(self, filename: str) -> Optional[str]:
         """Find document file in various possible locations"""
         search_paths = [
-            '.',
-            'CP2000',
-            'CP2000 NEW BATCH 2',
-            'PROCESSED_FILES',
-            '../CP2000_Production'
+            '.',  # Current directory
+            'CP2000',  # Main folder
+            'CP2000 NEW BATCH 2',  # Second batch
+            'PROCESSED_FILES',  # Processed files
+            'TEMP_PROCESSING',  # Temp processing folder
+            '../CP2000_Production',  # Production folder
+            '../CP2000_Production/CP2000 NEW BATCH 2',  # Production batch
         ]
         
         for path in search_paths:
             full_path = os.path.join(path, filename)
             if os.path.exists(full_path):
                 logger.info(f"📁 Found document: {full_path}")
-                return full_path
+                return os.path.abspath(full_path)
+        
+        # Try recursive search in current directory
+        logger.info(f"🔍 Trying recursive search for: {filename}")
+        for root, dirs, files in os.walk('.'):
+            if filename in files:
+                full_path = os.path.join(root, filename)
+                logger.info(f"📁 Found document via recursive search: {full_path}")
+                return os.path.abspath(full_path)
         
         return None
     
@@ -384,4 +409,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 

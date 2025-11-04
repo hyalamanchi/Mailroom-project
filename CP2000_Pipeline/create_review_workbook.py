@@ -132,27 +132,28 @@ def create_review_workbook():
         'Source_Folder',
         'Match_Confidence',
         'Status',
-        'Notes'
+        'Notes',
+        'Processed_Timestamp'
     ]
     
     # Prepare data for matched cases
     matched_data = []
     # Add instruction rows
-    matched_data.append(['', '', '', '', '', '', '', '', '', '', '', '', ''])
+    matched_data.append(['', '', '', '', '', '', '', '', '', '', '', '', '', ''])
     matched_data.append([
         'Review each matched case below',
-        '', '', '', '', '', '', '', '', '', '', '', ''
+        '', '', '', '', '', '', '', '', '', '', '', '', ''
     ])
     matched_data.append([
         'In Status column, enter: APPROVE, UNDER_REVIEW, or REJECT',
-        '', '', '', '', '', '', '', '', '', '', '', ''
+        '', '', '', '', '', '', '', '', '', '', '', '', ''
     ])
-    matched_data.append(['', '', '', '', '', '', '', '', '', '', '', '', ''])
+    matched_data.append(['', '', '', '', '', '', '', '', '', '', '', '', '', ''])
     matched_data.append([
         'Add any notes in Notes column',
-        '', '', '', '', '', '', '', '', '', '', '', ''
+        '', '', '', '', '', '', '', '', '', '', '', '', ''
     ])
-    matched_data.append(['', '', '', '', '', '', '', '', '', '', '', '', ''])
+    matched_data.append(['', '', '', '', '', '', '', '', '', '', '', '', '', ''])
     # Add header row
     matched_data.append(headers)
     
@@ -185,28 +186,29 @@ def create_review_workbook():
             'TEMP_PROCESSING',
             match_confidence,
             '',  # Status - empty for user to fill
-            ''   # Notes - empty for user to add
+            '',  # Notes - empty for user to add
+            datetime.now().strftime('%Y-%m-%d %H:%M:%S')  # Processed timestamp
         ]
         matched_data.append(row)
     
     # Prepare data for unmatched cases
     unmatched_data = []
     # Add instruction rows
-    unmatched_data.append(['', '', '', '', '', '', '', '', '', '', '', '', ''])
+    unmatched_data.append(['', '', '', '', '', '', '', '', '', '', '', '', '', ''])
     unmatched_data.append([
         'These cases could not be automatically matched in Logics',
-        '', '', '', '', '', '', '', '', '', '', '', ''
+        '', '', '', '', '', '', '', '', '', '', '', '', ''
     ])
     unmatched_data.append([
         'Please review and manually match or create new cases',
-        '', '', '', '', '', '', '', '', '', '', '', ''
+        '', '', '', '', '', '', '', '', '', '', '', '', ''
     ])
-    unmatched_data.append(['', '', '', '', '', '', '', '', '', '', '', '', ''])
+    unmatched_data.append(['', '', '', '', '', '', '', '', '', '', '', '', '', ''])
     unmatched_data.append([
         'In Status column, enter: APPROVE, UNDER_REVIEW, or REJECT',
-        '', '', '', '', '', '', '', '', '', '', '', ''
+        '', '', '', '', '', '', '', '', '', '', '', '', ''
     ])
-    unmatched_data.append(['', '', '', '', '', '', '', '', '', '', '', '', ''])
+    unmatched_data.append(['', '', '', '', '', '', '', '', '', '', '', '', '', ''])
     # Add header row
     unmatched_data.append(headers)
     
@@ -225,7 +227,8 @@ def create_review_workbook():
             'TEMP_PROCESSING',
             'Unmatched',
             '',  # Status - empty for user to fill
-            ''   # Notes - empty for user to add
+            '',  # Notes - empty for user to add
+            datetime.now().strftime('%Y-%m-%d %H:%M:%S')  # Processed timestamp
         ]
         unmatched_data.append(row)
     
@@ -447,7 +450,7 @@ def create_review_workbook():
                     'sheetId': sheet_id,
                     'dimension': 'COLUMNS',
                     'startIndex': 0,
-                    'endIndex': 13
+                    'endIndex': 14  # Now 14 columns (added Processed_Timestamp)
                 }
             }
         })
