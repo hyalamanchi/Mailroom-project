@@ -1,0 +1,96 @@
+╔═══════════════════════════════════════════════════════════════════════════╗
+║                    CP2000 APPROVAL AUTOMATION FLOW                        ║
+╚═══════════════════════════════════════════════════════════════════════════╝
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│ STEP 1: YOU REVIEW THE GOOGLE SHEET                                      │
+│                                                                           │
+│  Case  │ Original_Filename  │ Taxpayer_Name │ Tax_Year │ Status │ Notes │
+│ ────────────────────────────────────────────────────────────────────── │
+│ 12345  │ CP2000_123.pdf     │ John Doe      │ 2023     │ [____] │       │
+│ 12346  │ CP2000_456.pdf     │ Jane Smith    │ 2023     │ [____] │       │
+│ 12347  │ CP2000_789.pdf     │ Bob Jones     │ 2023     │ [____] │       │
+└─────────────────────────────────────────────────────────────────────────┘
+                                  ↓
+                    You click on Status column dropdown
+                                  ↓
+┌─────────────────────────────────────────────────────────────────────────┐
+│ STEP 2: YOU SELECT "APPROVE" FROM DROPDOWN                               │
+│                                                                           │
+│  Case  │ Original_Filename  │ Taxpayer_Name │ Tax_Year │ Status │ Notes │
+│ ────────────────────────────────────────────────────────────────────── │
+│ 12345  │ CP2000_123.pdf     │ John Doe      │ 2023     │ [____] │       │
+│ 12346  │ CP2000_456.pdf     │ Jane Smith    │ 2023     │ APPROVE│       │ ✅
+│ 12347  │ CP2000_789.pdf     │ Bob Jones     │ 2023     │ [____] │       │
+└─────────────────────────────────────────────────────────────────────────┘
+                                  ↓
+                      (Automation monitors every 60 sec)
+                                  ↓
+┌─────────────────────────────────────────────────────────────────────────┐
+│ STEP 3: AUTOMATION DETECTS "APPROVE" IN ROW 2                           │
+│                                                                           │
+│  if status.strip().upper() == 'APPROVE':  ← Line 98 in the code         │
+│      process_this_case()                  ← ONLY runs for APPROVE        │
+└─────────────────────────────────────────────────────────────────────────┘
+                                  ↓
+                         ONLY FOR ROW 2 (Jane Smith)
+                                  ↓
+┌─────────────────────────────────────────────────────────────────────────┐
+│ STEP 4: AUTOMATION PROCESSES THE APPROVED CASE                           │
+│                                                                           │
+│  ✅ Extract case data (Case ID: 12346, File: CP2000_456.pdf)            │
+│  ✅ Call Logics API to create task                                       │
+│  ✅ Call Logics API to upload document                                   │
+│  ✅ Update Notes column with result                                      │
+└─────────────────────────────────────────────────────────────────────────┘
+                                  ↓
+┌─────────────────────────────────────────────────────────────────────────┐
+│ STEP 5: NOTES COLUMN UPDATED WITH RESULT                                 │
+│                                                                           │
+│  Case  │ Original_Filename  │ Taxpayer_Name │ Tax_Year │ Status │ Notes │
+│ ────────────────────────────────────────────────────────────────────── │
+│ 12345  │ CP2000_123.pdf     │ John Doe      │ 2023     │ [____] │       │
+│ 12346  │ CP2000_456.pdf     │ Jane Smith    │ 2023     │ APPROVE│ ✅ Completed │
+│ 12347  │ CP2000_789.pdf     │ Bob Jones     │ 2023     │ [____] │       │
+└─────────────────────────────────────────────────────────────────────────┘
+
+═══════════════════════════════════════════════════════════════════════════
+
+IMPORTANT:
+  ✅ Row 1 (John Doe): Status is empty → NOT PROCESSED
+  ✅ Row 2 (Jane Smith): Status is "APPROVE" → PROCESSED ✅✅✅
+  ✅ Row 3 (Bob Jones): Status is empty → NOT PROCESSED
+
+═══════════════════════════════════════════════════════════════════════════
+
+THE CODE (Line 94-108):
+
+    # Status is at column index 11 (column L)
+    status = row[11] if len(row) > 11 else ''
+    
+    # Process if approved
+    if status.strip().upper() == 'APPROVE':  ← ONLY THIS TRIGGERS!
+        logger.info(f"✅ APPROVED case found in row {idx}")
+        success = self._process_approved_case(row, idx, spreadsheet_id)
+        
+        if success:
+            processed_rows.add(row_key)
+            logger.info(f"✅ Successfully processed row {idx}")
+
+═══════════════════════════════════════════════════════════════════════════
+
+WHAT TRIGGERS PROCESSING:
+  ✅ "APPROVE"
+  ✅ "approve" 
+  ✅ "Approve"
+  ✅ Any variation of APPROVE (case doesn't matter)
+
+WHAT DOES NOT TRIGGER:
+  ❌ Empty cells
+  ❌ "UNDER_REVIEW"
+  ❌ "REJECT"
+  ❌ Any other value
+  ❌ Typos like "Approved"
+
+═══════════════════════════════════════════════════════════════════════════
+
