@@ -194,13 +194,18 @@ class HundredPercentAccuracyExtractor:
     
     def extract_tax_year_from_filename(self, filename: str) -> Optional[str]:
         """Extract tax year from filename first (more reliable)"""
+        current_year = datetime.now().year
+        
         # Look for CP2000_YYYY pattern in filename
         matches = re.findall(r'CP2000[_\s]+(20\d{2})', filename, re.IGNORECASE)
         if matches:
             year = matches[0]
-            if 2015 <= int(year) <= 2030:
+            # Only allow tax years from 2015 to current year (not future years)
+            if 2015 <= int(year) <= current_year:
                 print(f"    📋 Tax year from filename: {year}")
                 return year
+            else:
+                print(f"    ⚠️  Invalid tax year in filename: {year} (must be 2015-{current_year})")
         
         # Look for DTD date and infer tax year (usually filing year - 1 or 2)
         dtd_matches = re.findall(r'DTD\s+[\d\.\-_]*(\d{4})', filename)
@@ -208,7 +213,7 @@ class HundredPercentAccuracyExtractor:
             dtd_year = int(dtd_matches[0])
             # Infer tax year (typically 1-3 years before DTD year)
             for tax_year in [dtd_year - 1, dtd_year - 2, dtd_year - 3]:
-                if 2015 <= tax_year <= 2030:
+                if 2015 <= tax_year <= current_year:
                     print(f"    📋 Tax year inferred from DTD: {tax_year}")
                     return str(tax_year)
         
@@ -788,15 +793,38 @@ class HundredPercentAccuracyExtractor:
         return False
     
     def extract_ssn_last_4(self, full_ssn: str) -> Optional[str]:
-        """Extract last 4 digits of SSN"""
-        if full_ssn and re.match(r'^\d{3}-\d{2}-\d{4}$', full_ssn):
+        """Extract last 4 digits of SSN with enhanced validation"""
+        if not full_ssn:
+            return None
+            
+        # Remove any non-digit characters
+        digits_only = re.sub(r'\D', '', full_ssn)
+        
+        # Check if it's a properly formatted SSN (XXX-XX-XXXX)
+        if re.match(r'^\d{3}-\d{2}-\d{4}$', full_ssn):
             last_4 = full_ssn[-4:]
-            print(f"    🔑 SSN Last-4: {last_4}")
+            if last_4.isdigit() and len(last_4) == 4:
+                print(f"    🔑 SSN Last-4: {last_4}")
+                return last_4
+        
+        # Check if it's just digits (9 digits for full SSN)
+        elif len(digits_only) == 9:
+            last_4 = digits_only[-4:]
+            print(f"    🔑 SSN Last-4 (from {len(digits_only)} digits): {last_4}")
             return last_4
-        elif full_ssn and re.match(r'^\d{4}$', full_ssn):
-            # Already just last 4 digits
-            print(f"    🔑 SSN Last-4: {full_ssn}")
-            return full_ssn
+        
+        # Check if it's already just last 4 digits
+        elif len(digits_only) == 4:
+            print(f"    🔑 SSN Last-4: {digits_only}")
+            return digits_only
+        
+        # If we have more than 4 digits but less than 9, take the last 4
+        elif len(digits_only) > 4:
+            last_4 = digits_only[-4:]
+            print(f"    ⚠️  SSN format unusual ({len(digits_only)} digits), using last 4: {last_4}")
+            return last_4
+        
+        print(f"    ❌ Invalid SSN format: {full_ssn} (only {len(digits_only)} digits)")
         return None
     
     def extract_date_from_patterns(self, text: str, patterns: List[str], date_type: str, header_text: str = "") -> Optional[str]:
@@ -1054,6 +1082,8 @@ class HundredPercentAccuracyExtractor:
     
     def extract_tax_year(self, text: str, filename: str) -> Optional[str]:
         """Extract tax year with filename preference"""
+        current_year = datetime.now().year
+        
         # Try filename first (more reliable)
         filename_year = self.extract_tax_year_from_filename(filename)
         if filename_year:
@@ -1065,9 +1095,12 @@ class HundredPercentAccuracyExtractor:
             if matches:
                 year = matches[0].strip()
                 try:
-                    if 2015 <= int(year) <= 2030:
+                    # Only allow tax years from 2015 to current year (not future years)
+                    if 2015 <= int(year) <= current_year:
                         print(f"    📋 Tax year from content: {year}")
                         return year
+                    else:
+                        print(f"    ⚠️  Invalid tax year in content: {year} (must be 2015-{current_year})")
                 except:
                     continue
         return None
