@@ -129,7 +129,7 @@ class EnhancedAutoWatcher:
             self.log(f"   📄 Processing: {os.path.basename(file_path)}")
             
             # Extract data
-            extracted_data = self.extractor.extract_from_file(file_path)
+            extracted_data = self.extractor.extract_100_percent_accuracy_data(file_path)
             if not extracted_data:
                 self.log(f"   ⚠️  No data extracted from {file_path}")
                 return None
