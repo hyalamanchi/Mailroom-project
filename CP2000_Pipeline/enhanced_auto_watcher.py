@@ -146,8 +146,7 @@ class EnhancedAutoWatcher:
                 match_result = self.searcher.search_case(
                     last_name=last_name,
                     first_name=first_name,
-                    ssn_last_4=ssn_last_4,
-                    tax_year=extracted_data.get('tax_year')
+                    ssn_last_4=ssn_last_4
                 )
                 
                 if match_result:
