@@ -150,11 +150,13 @@ class EnhancedAutoWatcher:
                 )
                 
                 if match_result:
-                    extracted_data['logics_case_id'] = match_result.get('case_id')
+                    # Extract case ID from nested structure
+                    case_id = match_result.get('case_data', {}).get('caseId')
+                    extracted_data['logics_case_id'] = case_id
                     extracted_data['logics_case_data'] = match_result
                     extracted_data['match_status'] = 'MATCHED'
                     extracted_data['match_confidence'] = 'High'
-                    self.log(f"   ✅ Matched to Case ID: {match_result.get('case_id')}")
+                    self.log(f"   ✅ Matched to Case ID: {case_id}")
                 else:
                     extracted_data['match_status'] = 'UNMATCHED'
                     extracted_data['match_confidence'] = 'N/A'
