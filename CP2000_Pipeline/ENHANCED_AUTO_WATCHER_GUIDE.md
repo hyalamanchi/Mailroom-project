@@ -10,11 +10,12 @@ The Enhanced Auto Watcher automatically monitors your CP2000 folders for new PDF
 
 ### ✅ **What It Does:**
 1. **Monitors Local Folders** - Watches `CP2000/` and `CP2000 NEW BATCH 2/` folders
-2. **Detects New Files** - Automatically finds new PDF files added to folders
-3. **Processes & Matches** - Extracts data and matches against Logics CRM
-4. **Appends to Sheet** - Adds new cases to your EXISTING Google Sheet
-5. **Adds Timestamps** - Each case gets a "Processed_Timestamp" column
-6. **Tracks Processed Files** - Prevents reprocessing the same files
+2. **Monitors Google Drive** - 🆕 Can also watch Google Drive folders for new uploads!
+3. **Detects New Files** - Automatically finds new PDF files added to folders
+4. **Processes & Matches** - Extracts data and matches against Logics CRM
+5. **Appends to Sheet** - Adds new cases to your EXISTING Google Sheet
+6. **Adds Timestamps** - Each case gets a "Processed_Timestamp" column
+7. **Tracks Processed Files** - Prevents reprocessing the same files
 
 ### ❌ **What Changed from Old Watcher:**
 - **OLD**: Created a NEW Google Sheet every time ❌
@@ -78,6 +79,25 @@ Run once and exit (doesn't keep monitoring):
 ```bash
 python3 enhanced_auto_watcher.py YOUR_SPREADSHEET_ID --once
 ```
+
+### **🆕 Option 4: Monitor Google Drive Folders**
+
+Monitor local folders + Google Drive:
+```bash
+./start_enhanced_watcher.sh YOUR_SPREADSHEET_ID 300 GOOGLE_DRIVE_FOLDER_ID
+```
+
+Example with your Drive folder:
+```bash
+./start_enhanced_watcher.sh 1_z6KrPLBRKlgJYQjmKKmvU6QfaAZ5q-ybD6Izp5sfr0 300 1CGl9pdVWqGssSS3ausbw88MoBWvS65zl
+```
+
+**To get your Google Drive folder ID:**
+1. Open the folder in Google Drive
+2. Look at the URL: `https://drive.google.com/drive/folders/FOLDER_ID`
+3. Copy the `FOLDER_ID` part
+
+**📚 For complete Google Drive documentation, see:** [GOOGLE_DRIVE_MONITORING.md](./GOOGLE_DRIVE_MONITORING.md)
 
 ---
 
