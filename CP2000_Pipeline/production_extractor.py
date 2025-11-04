@@ -1,6 +1,6 @@
 """
 CP2000 PRODUCTION EXTRACTOR - OPTIMIZED FOR SPEED
-Clean, simple, ULTRA-FAST workflow for high-volume business needs
+This script processes CP2000 letters and extracts key data for Logics integration.
 
 WORKFLOW:
 1. Download PDFs from Google Drive (single source of truth)
@@ -39,77 +39,91 @@ import pandas as pd
 
 # Import the 100% accuracy engine
 from hundred_percent_accuracy_extractor import HundredPercentAccuracyExtractor
+from logics_case_search import LogicsCaseSearcher
 
-class ProductionExtractor:
-    """Optimized production-ready extractor with incremental processing"""
-    
-    def __init__(self, force_full=False):
-        self.SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
-        self.service = None
-        self.force_full = force_full
-        
-        # Google Drive folder
-        self.folders = {
-            'main_folder': '18e8lj66Mdr7PFGhJ7ySYtsnkNgiuczmx'
-        }
-        
-        # Temp directory for downloads
-        self.temp_dir = 'TEMP_PROCESSING'
-        
-        # Processing history file for incremental processing
-        self.history_file = 'PROCESSING_HISTORY.json'
-        self.processed_files = self.load_history()
-        
-    def load_history(self):
-        """Load processing history for incremental processing"""
-        if os.path.exists(self.history_file) and not self.force_full:
-            try:
-                with open(self.history_file, 'r') as f:
-                    return json.load(f)
-            except:
-                return {}
-        return {}
-    
-    def save_history(self, file_hash, result):
-        """Save processed file to history"""
-        self.processed_files[file_hash] = {
-            'processed_at': datetime.now().isoformat(),
-            'filename': result.get('filename', ''),
-            'success': True
-        }
-        
-        with open(self.history_file, 'w') as f:
-            json.dump(self.processed_files, f, indent=2)
-    
-    def get_file_hash(self, filename):
-        """Get unique hash for a file to track if it's been processed"""
-        # Use filename as hash (simpler for Drive files)
-        return hashlib.md5(filename.encode()).hexdigest()
-    
-    def authenticate(self):
-        """Authenticate with Google Drive using service account"""
-        try:
-            creds = service_account.Credentials.from_service_account_file(
-                'service-account-key.json',
-                scopes=self.SCOPES
-            )
-            
-            self.service = build('drive', 'v3', credentials=creds)
-            print("✅ Authenticated with Google Drive (Service Account)")
-            
-        except FileNotFoundError:
-            print("❌ Error: service-account-key.json not found")
-            print("💡 Place your service account JSON file in the project root")
-            raise
-        except Exception as e:
-            print(f"❌ Authentication error: {str(e)}")
-            raise
-    
-    def download_from_drive(self):
+        except Exception as e:        return {}
+
+            print(f"❌ Error processing {file_name}: {str(e)}")    
+
+            processed_files[file_name] = {    def save_history(self, file_hash, result):
+
+                'processed_at': datetime.now().isoformat(),        """Save processed file to history"""
+
+                'success': False,        self.processed_files[file_hash] = {
+
+                'error': str(e)            'processed_at': datetime.now().isoformat(),
+
+            }            'filename': result.get('filename', ''),
+
+                'success': True
+
+    # Save processing history        }
+
+    with open(history_file, 'w') as f:        
+
+        json.dump(processed_files, f, indent=2)        with open(self.history_file, 'w') as f:
+
+                json.dump(self.processed_files, f, indent=2)
+
+    # Save results    
+
+    if results:    def get_file_hash(self, filename):
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")        """Get unique hash for a file to track if it's been processed"""
+
+                # Use filename as hash (simpler for Drive files)
+
+        # Save JSON        return hashlib.md5(filename.encode()).hexdigest()
+
+        output_json = f"LOGICS_DATA_{timestamp}.json"    
+
+        with open(output_json, 'w') as f:    def authenticate(self):
+
+            json.dump({        """Authenticate with Google Drive using service account"""
+
+                'extraction_metadata': {        try:
+
+                    'timestamp': datetime.now().isoformat(),            creds = service_account.Credentials.from_service_account_file(
+
+                    'total_files': len(pdf_files),                'service-account-key.json',
+
+                    'processed_files': processed_count,                scopes=self.SCOPES
+
+                    'source_directory': str(input_dir),            )
+
+                    'incremental': incremental            
+
+                },            self.service = build('drive', 'v3', credentials=creds)
+
+                'extracted_data': results            print("✅ Authenticated with Google Drive (Service Account)")
+
+            }, f, indent=2)            
+
+                except FileNotFoundError:
+
+        print(f"\n✅ Results saved to {output_json}")            print("❌ Error: service-account-key.json not found")
+
+        print(f"📊 Processed {processed_count} new files")            print("💡 Place your service account JSON file in the project root")
+
+        print(f"📁 Total processed files in history: {len(processed_files)}")            raise
+
+            except Exception as e:
+
+    # Cleanup            print(f"❌ Authentication error: {str(e)}")
+
+    if temp_dir.exists():            raise
+
+        shutil.rmtree(temp_dir)    
+
+        print("🧹 Cleaned up temporary files")    def download_from_drive(self):
+
         """Download PDFs from Google Drive with INCREMENTAL processing"""
-        print("\n📥 DOWNLOADING FROM GOOGLE DRIVE (INCREMENTAL MODE)")
-        print("=" * 60)
-        
+
+if __name__ == "__main__":        print("\n📥 DOWNLOADING FROM GOOGLE DRIVE (INCREMENTAL MODE)")
+
+    # Process the new batch        print("=" * 60)
+
+    process_batch("../CP2000_Production/CP2000 NEW BATCH 2")        
         if self.force_full:
             print("⚠️  FULL REPROCESS MODE - Will process all files")
         
@@ -118,23 +132,37 @@ class ProductionExtractor:
             shutil.rmtree(self.temp_dir)
         os.makedirs(self.temp_dir)
         
+        # Local directories to process
+        local_dirs = [
+            '../cp2000',
+            '../cp2000 newbatch/temp_processing',
+            '../cp2000new batch2'
+        ]
+        
         all_files = []
         skipped_count = 0
         
-        for folder_name, folder_id in self.folders.items():
-            print(f"\n📁 {folder_name}:")
+        for dir_path in local_dirs:
+            if not os.path.exists(dir_path):
+                print(f"⚠️  Directory not found: {dir_path}")
+                continue
+                
+            print(f"\n📁 Processing directory: {dir_path}")
             
-            # List files
-            query = f"'{folder_id}' in parents and mimeType='application/pdf' and trashed=false"
-            results = self.service.files().list(q=query, fields="files(id, name)", pageSize=1000).execute()
-            files = results.get('files', [])
+            # List PDF files in directory
+            pdf_files = []
+            for root, dirs, files in os.walk(dir_path):
+                for file in files:
+                    if file.lower().endswith('.pdf'):
+                        pdf_files.append(os.path.join(root, file))
             
-            print(f"   Found: {len(files)} PDFs")
+            print(f"   Found: {len(pdf_files)} PDFs")
             
-            # Download each file (skip already processed)
+            # Process each file (skip already processed)
             new_files = 0
-            for i, file in enumerate(files, 1):
-                file_hash = self.get_file_hash(file['name'])
+            for file_path in pdf_files:
+                file_name = os.path.basename(file_path)
+                file_hash = self.get_file_hash(file_name)
                 
                 # Skip if already processed (unless force_full)
                 if file_hash in self.processed_files and not self.force_full:
@@ -142,25 +170,20 @@ class ProductionExtractor:
                     continue
                 
                 try:
-                    request = self.service.files().get_media(fileId=file['id'])
-                    local_path = os.path.join(self.temp_dir, file['name'])
-                    
-                    with open(local_path, 'wb') as f:
-                        downloader = MediaIoBaseDownload(f, request)
-                        done = False
-                        while not done:
-                            status, done = downloader.next_chunk()
+                    # Copy file to temp directory
+                    local_path = os.path.join(self.temp_dir, file_name)
+                    shutil.copy2(file_path, local_path)
                     
                     all_files.append(local_path)
                     new_files += 1
                     
                     if new_files % 10 == 0:
-                        print(f"   Downloaded: {new_files} new files...")
+                        print(f"   Copied: {new_files} new files...")
                 
                 except Exception as e:
-                    print(f"   ❌ Error: {file['name']} - {str(e)}")
+                    print(f"   ❌ Error: {file_name} - {str(e)}")
             
-            print(f"   ✅ New files: {new_files}, Skipped: {len(files) - new_files}")
+            print(f"   ✅ New files: {new_files}, Skipped: {len(pdf_files) - new_files}")
         
         print(f"\n✅ Total NEW files to process: {len(all_files)} PDFs")
         if skipped_count > 0:
@@ -169,9 +192,13 @@ class ProductionExtractor:
         return all_files
     
     def extract_single_file(self, pdf_path):
-        """Extract data from one PDF with improved letter type detection"""
+        """Extract data from one PDF with improved letter type detection and Logics case search"""
         try:
+            # Initialize extractors
             extractor = HundredPercentAccuracyExtractor()
+            logics_searcher = LogicsCaseSearcher()
+            
+            # Extract data from PDF
             result = extractor.extract_100_percent_accuracy_data(pdf_path)
             
             # Enhanced letter type detection from filename and content
@@ -192,6 +219,27 @@ class ProductionExtractor:
                 else:
                     # Default to CP2000 if not specified
                     result['letter_type'] = result.get('letter_type', 'CP2000')
+                
+                # Search for Logics case
+                if result.get('ssn_last_4') and result.get('taxpayer_name'):
+                    # Split full name into parts (if available)
+                    name_parts = result['taxpayer_name'].split(' ', 1)
+                    first_name = name_parts[0] if len(name_parts) > 1 else None
+                    last_name = name_parts[-1]
+                    
+                    print(f"\n🔍 Searching Logics for: {last_name}, SSN: ***-**-{result['ssn_last_4']}")
+                    case_result = logics_searcher.search_case(
+                        ssn_last_4=result['ssn_last_4'],
+                        last_name=last_name,
+                        first_name=first_name
+                    )
+                    
+                    if case_result:
+                        result['logics_case_id'] = case_result.get('case_id')
+                        result['logics_case_data'] = case_result
+                        print(f"✅ Found Logics case: {result['logics_case_id']}")
+                    else:
+                        print("❌ No matching Logics case found")
                 
                 # Save to history after successful extraction
                 file_hash = self.get_file_hash(os.path.basename(pdf_path))
@@ -243,16 +291,21 @@ class ProductionExtractor:
         return results
     
     def save_output(self, results):
-        """Save in both JSON and Excel formats"""
+        """Save results in separate files for matched and unmatched cases"""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        json_file = f"LOGICS_DATA_{timestamp}.json"
-        excel_file = f"LOGICS_DATA_{timestamp}.xlsx"
         
-        # Prepare data
+        # Separate matched and unmatched cases
+        matched_cases = [r for r in results if r.get('logics_case_id')]
+        unmatched_cases = [r for r in results if not r.get('logics_case_id')]
+        
+        # Save JSON with all data
+        json_file = f"LOGICS_DATA_{timestamp}.json"
         output_data = {
             "extraction_metadata": {
                 "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "total_records": len(results),
+                "matched_records": len(matched_cases),
+                "unmatched_records": len(unmatched_cases),
                 "source": "Google Drive",
                 "quality_score": sum(r.get('extraction_confidence', 0) for r in results) / len(results) if results else 0,
                 "google_drive_folders": list(self.folders.keys())
@@ -260,68 +313,143 @@ class ProductionExtractor:
             "case_matching_data": results
         }
         
-        # Save JSON
         with open(json_file, 'w', encoding='utf-8') as f:
             json.dump(output_data, f, indent=2, ensure_ascii=False)
+
+        # Create output directories if they don't exist
+        os.makedirs("matched_cases", exist_ok=True)
+        os.makedirs("unmatched_cases", exist_ok=True)
         
-        # Save Excel
-        df_data = []
-        for record in results:
-            df_data.append({
-                'Filename': record.get('filename', ''),
-                'Taxpayer Name': record.get('taxpayer_name', ''),
-                'Spouse Name': record.get('spouse_name', ''),
-                'Full SSN': record.get('full_ssn', ''),
-                'SSN Last 4': record.get('ssn_last_4', ''),
-                'Letter Type': record.get('letter_type', ''),
-                'Notice Date': record.get('notice_date', ''),
-                'Notice Reference': record.get('notice_ref_number', ''),
-                'Tax Year': record.get('tax_year', ''),
-                'Urgency Level': record.get('urgency_level', ''),
-                'Urgency Status': record.get('urgency_status', ''),
-                'Date of Urgency': record.get('date_of_urgency', ''),
-                'Response Due Date': record.get('response_due_date', ''),
-                'Days Remaining': record.get('days_remaining', ''),
-                'Response Days Allowed': record.get('response_days_allowed', 30),
-                'Extraction Confidence': record.get('extraction_confidence', 0),
-                'Needs Review': record.get('needs_review', False),
-                'Quality Issues': ', '.join(record.get('quality_issues', []))
-            })
+        # Function to create DataFrame from records
+        def create_df_data(records, include_status=False):
+            df_data = []
+            for record in records:
+                data = {
+                    'Filename': record.get('filename', ''),
+                    'Taxpayer Name': record.get('taxpayer_name', ''),
+                    'Spouse Name': record.get('spouse_name', ''),
+                    'Full SSN': record.get('full_ssn', ''),
+                    'SSN Last 4': record.get('ssn_last_4', ''),
+                    'Letter Type': record.get('letter_type', ''),
+                    'Notice Date': record.get('notice_date', ''),
+                    'Notice Reference': record.get('notice_ref_number', ''),
+                    'Tax Year': record.get('tax_year', ''),
+                    'Urgency Level': record.get('urgency_level', ''),
+                    'Urgency Status': record.get('urgency_status', ''),
+                    'Date of Urgency': record.get('date_of_urgency', ''),
+                    'Response Due Date': record.get('response_due_date', ''),
+                    'Days Remaining': record.get('days_remaining', ''),
+                    'Response Days Allowed': record.get('response_days_allowed', 30),
+                    'Extraction Confidence': record.get('extraction_confidence', 0),
+                    'Quality Issues': ', '.join(record.get('quality_issues', [])),
+                }
+                
+                if include_status:
+                    data.update({
+                        'Case ID': record.get('logics_case_id', ''),
+                        'Status': 'Pending',  # Initial status
+                        'Action': 'Choose Action',  # Dropdown cell
+                        'Last Updated': '',
+                        'Notes': ''
+                    })
+                
+                df_data.append(data)
+            return pd.DataFrame(df_data)
+
+        # Save matched cases Excel
+        if matched_cases:
+            matched_file = f"matched_cases/MATCHED_CASES_{timestamp}.xlsx"
+            df_matched = create_df_data(matched_cases, include_status=True)
+            
+            with pd.ExcelWriter(matched_file, engine='openpyxl') as writer:
+                df_matched.to_excel(writer, sheet_name='Matched Cases', index=False)
+                
+                # Get workbook and worksheet
+                workbook = writer.book
+                worksheet = writer.sheets['Matched Cases']
+                
+                # Add data validation for Action column
+                from openpyxl.worksheet.datavalidation import DataValidation
+                action_validation = DataValidation(
+                    type="list",
+                    formula1='"Approve,Reject,Review"',
+                    allow_blank=True
+                )
+                worksheet.add_data_validation(action_validation)
+                
+                # Apply validation to Action column
+                action_col = df_matched.columns.get_loc('Action') + 1  # +1 because Excel is 1-based
+                for row in range(2, len(df_matched) + 2):  # +2 for header and 1-based
+                    cell = worksheet.cell(row=row, column=action_col)
+                    action_validation.add(cell)
+                
+                # Auto-adjust column widths
+                for idx, col in enumerate(df_matched.columns):
+                    max_length = max(
+                        df_matched[col].astype(str).map(len).max(),
+                        len(col)
+                    ) + 2
+                    worksheet.column_dimensions[chr(65 + idx)].width = min(max_length, 50)
+                
+                # Add instructions sheet
+                instructions = pd.DataFrame([
+                    ['Instructions', 'Description'],
+                    ['Approve', 'Document will be uploaded and task created in Logics'],
+                    ['Reject', 'Case will be moved to unmatched for manual review'],
+                    ['Review', 'Mark for additional review before processing'],
+                    ['', ''],
+                    ['Note:', 'After selecting an action, save the file to trigger processing']
+                ])
+                instructions.to_excel(writer, sheet_name='Instructions', index=False)
+
+        # Save unmatched cases Excel
+        if unmatched_cases:
+            unmatched_file = f"unmatched_cases/UNMATCHED_CASES_{timestamp}.xlsx"
+            df_unmatched = create_df_data(unmatched_cases)
+            
+            with pd.ExcelWriter(unmatched_file, engine='openpyxl') as writer:
+                df_unmatched.to_excel(writer, sheet_name='Unmatched Cases', index=False)
+                
+                # Get workbook and worksheet
+                workbook = writer.book
+                worksheet = writer.sheets['Unmatched Cases']
+                
+                # Auto-adjust column widths
+                for idx, col in enumerate(df_unmatched.columns):
+                    max_length = max(
+                        df_unmatched[col].astype(str).map(len).max(),
+                        len(col)
+                    ) + 2
+                    worksheet.column_dimensions[chr(65 + idx)].width = min(max_length, 50)
+                
+                # Add metadata sheet
+                metadata_df = pd.DataFrame([
+                    ['Total Unmatched Cases', len(unmatched_cases)],
+                    ['Extraction Date', datetime.now().strftime("%Y-%m-%d %H:%M:%S")],
+                    ['Instructions', 'These cases require manual review and matching'],
+                    ['Next Steps', '1. Review case details\n2. Search in Logics manually\n3. Create cases if needed']
+                ], columns=['Metric', 'Value'])
+                
+                metadata_df.to_excel(writer, sheet_name='Instructions', index=False)
+                
+        # Return file paths
+        files = {
+            'json': json_file,
+            'matched': matched_file if matched_cases else None,
+            'unmatched': unmatched_file if unmatched_cases else None
+        }
         
-        df = pd.DataFrame(df_data)
+        print(f"\n💾 OUTPUT SAVED:")
+        print(f"   JSON: {json_file}")
+        if matched_cases:
+            print(f"   Matched Cases Excel: {matched_file}")
+            print(f"   Matched Records: {len(matched_cases)}")
+        if unmatched_cases:
+            print(f"   Unmatched Cases Excel: {unmatched_file}")
+            print(f"   Unmatched Records: {len(unmatched_cases)}")
+        print(f"   Quality: {output_data['extraction_metadata']['quality_score']:.1%}")
         
-        # Create Excel with formatting
-        with pd.ExcelWriter(excel_file, engine='openpyxl') as writer:
-            # Write data
-            df.to_excel(writer, sheet_name='CP2000 Extractions', index=False)
-            
-            # Get workbook and worksheet
-            workbook = writer.book
-            worksheet = writer.sheets['CP2000 Extractions']
-            
-            # Auto-adjust column widths
-            for idx, col in enumerate(df.columns):
-                max_length = max(
-                    df[col].astype(str).map(len).max(),
-                    len(col)
-                ) + 2
-                worksheet.column_dimensions[chr(65 + idx)].width = min(max_length, 50)
-            
-            # Add metadata sheet
-            metadata_df = pd.DataFrame([
-                ['Extraction Date', output_data['extraction_metadata']['timestamp']],
-                ['Total Records', output_data['extraction_metadata']['total_records']],
-                ['Quality Score', f"{output_data['extraction_metadata']['quality_score']:.1%}"],
-                ['Source', output_data['extraction_metadata']['source']],
-                ['Google Drive Folders', ', '.join(output_data['extraction_metadata']['google_drive_folders'])]
-            ], columns=['Metric', 'Value'])
-            
-            metadata_df.to_excel(writer, sheet_name='Metadata', index=False)
-            
-            # Auto-adjust metadata column widths
-            metadata_sheet = writer.sheets['Metadata']
-            metadata_sheet.column_dimensions['A'].width = 25
-            metadata_sheet.column_dimensions['B'].width = 50
+        return files
         
         print(f"\n💾 OUTPUT SAVED:")
         print(f"   JSON: {json_file}")

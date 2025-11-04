@@ -1,31 +1,9 @@
-# CP2000 Pipeline Requirements
-# Core dependencies for the complete extraction pipeline
-
-# API and Authentication
-requests>=2.31.0
-python-dotenv>=1.0.0
-python-dateutil>=2.8.0
-
-# Google Drive Integration
-google-api-python-client>=2.0.0
-google-auth>=2.0.0
-google-auth-oauthlib>=1.0.0
-google-auth-httplib2>=0.2.0
-
-# OCR and Document Processing
-pytesseract>=0.3.10
-opencv-python>=4.5.0
-PyMuPDF>=1.20.0
-Pillow>=10.0.0
-
-# Data Processing & Excel Output
-pandas>=2.0.0
-openpyxl>=3.1.0
-numpy>=1.20.0
-
-# Optional: For enhanced analysis
-matplotlib>=3.5.0
-seaborn>=0.11.0
-
-# Standard library (included with Python)
-# json, pathlib, datetime, re, tempfile, traceback
+PyMuPDF==1.23.5
+openpyxl==3.1.2
+pandas==2.0.3
+requests==2.31.0
+google-api-python-client==2.100.0
+google-auth-httplib2==0.1.0
+google-auth-oauthlib==1.0.0
+python-dateutil==2.8.2
+watchdog==3.0.0
