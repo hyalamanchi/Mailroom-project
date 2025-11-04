@@ -35,28 +35,39 @@ from logics_case_search import LogicsCaseSearcher
 class EnhancedAutoWatcher:
     """Watches CP2000 folders and appends new cases to existing Google Sheet"""
     
-    def __init__(self, spreadsheet_id: str, check_interval: int = 300):
+    def __init__(self, spreadsheet_id: str, check_interval: int = 300, google_drive_folders: List[str] = None):
         self.spreadsheet_id = spreadsheet_id
         self.check_interval = check_interval
         self.state_file = 'processed_files_tracking.json'
         self.log_file = 'enhanced_watcher.log'
+        self.temp_download_folder = 'TEMP_DRIVE_DOWNLOADS'
         
-        # Folders to monitor
+        # Folders to monitor (local)
         self.watch_folders = [
             'CP2000',
             'CP2000 NEW BATCH 2',
             '../CP2000_Production/CP2000 NEW BATCH 2'
         ]
         
+        # Google Drive folders to monitor
+        self.google_drive_folders = google_drive_folders or []
+        
         # Initialize services
         self.sheets_service = self.init_google_sheets()
+        self.drive_service = self.init_google_drive() if self.google_drive_folders else None
         self.extractor = HundredPercentAccuracyExtractor()
         self.searcher = LogicsCaseSearcher()
+        
+        # Create temp download folder if monitoring Google Drive
+        if self.google_drive_folders:
+            os.makedirs(self.temp_download_folder, exist_ok=True)
         
         # Load processed files state
         self.processed_files = self.load_processed_state()
         
         self.log("✅ Enhanced Auto Watcher initialized")
+        if self.google_drive_folders:
+            self.log(f"✅ Google Drive monitoring enabled ({len(self.google_drive_folders)} folder(s))")
     
     def init_google_sheets(self):
         """Initialize Google Sheets API"""
@@ -69,12 +80,27 @@ class EnhancedAutoWatcher:
             self.log(f"❌ Failed to connect to Google Sheets: {e}")
             return None
     
+    def init_google_drive(self):
+        """Initialize Google Drive API"""
+        try:
+            creds = Credentials.from_authorized_user_file('token.json')
+            service = build('drive', 'v3', credentials=creds)
+            self.log("✅ Connected to Google Drive")
+            return service
+        except Exception as e:
+            self.log(f"❌ Failed to connect to Google Drive: {e}")
+            return None
+    
     def load_processed_state(self) -> Dict:
         """Load list of already processed files"""
         if os.path.exists(self.state_file):
             with open(self.state_file, 'r') as f:
-                return json.load(f)
-        return {'processed_files': {}, 'last_check': None}
+                state = json.load(f)
+                # Ensure google_drive_files exists for backward compatibility
+                if 'google_drive_files' not in state:
+                    state['google_drive_files'] = {}
+                return state
+        return {'processed_files': {}, 'google_drive_files': {}, 'last_check': None}
     
     def save_processed_state(self):
         """Save processed files state"""
@@ -122,6 +148,80 @@ class EnhancedAutoWatcher:
                     self.log(f"   🔄 Modified file: {file}")
         
         return new_files
+    
+    def find_new_drive_files(self) -> List[Dict]:
+        """Find new PDF files in Google Drive folders"""
+        new_files = []
+        
+        if not self.drive_service:
+            return new_files
+        
+        for folder_id in self.google_drive_folders:
+            try:
+                # List PDF files in the Google Drive folder
+                query = f"'{folder_id}' in parents and mimeType='application/pdf' and trashed=false"
+                
+                results = self.drive_service.files().list(
+                    q=query,
+                    fields='files(id, name, modifiedTime, size)',
+                    pageSize=1000
+                ).execute()
+                
+                files = results.get('files', [])
+                
+                # Check which files are new
+                for file in files:
+                    file_id = file['id']
+                    
+                    # Check if this Drive file has been processed
+                    if file_id not in self.processed_files['google_drive_files']:
+                        new_files.append(file)
+                        self.log(f"   🆕 New Drive file: {file['name']}")
+                    
+            except Exception as e:
+                self.log(f"❌ Error checking Google Drive folder {folder_id}: {e}")
+        
+        return new_files
+    
+    def download_drive_file(self, file_info: Dict) -> Optional[str]:
+        """Download a file from Google Drive"""
+        try:
+            file_id = file_info['id']
+            file_name = file_info['name']
+            
+            # Download file content
+            request = self.drive_service.files().get_media(fileId=file_id)
+            
+            # Save to temp folder
+            local_path = os.path.join(self.temp_download_folder, file_name)
+            
+            import io
+            fh = io.FileIO(local_path, 'wb')
+            
+            from googleapiclient.http import MediaIoBaseDownload
+            downloader = MediaIoBaseDownload(fh, request)
+            
+            done = False
+            while not done:
+                status, done = downloader.next_chunk()
+            
+            fh.close()
+            
+            self.log(f"   📥 Downloaded: {file_name}")
+            return local_path
+            
+        except Exception as e:
+            self.log(f"❌ Error downloading {file_info.get('name')}: {e}")
+            return None
+    
+    def mark_drive_file_processed(self, file_info: Dict):
+        """Mark a Google Drive file as processed"""
+        file_id = file_info['id']
+        self.processed_files['google_drive_files'][file_id] = {
+            'name': file_info['name'],
+            'processed_time': datetime.now().isoformat()
+        }
+        self.save_processed_state()
     
     def process_file(self, file_path: str) -> Optional[Dict]:
         """Process a single PDF file"""
@@ -244,7 +344,9 @@ class EnhancedAutoWatcher:
         self.log("🔍 ENHANCED AUTO WATCHER STARTED")
         self.log(f"   Spreadsheet: {self.spreadsheet_id}")
         self.log(f"   Check interval: {self.check_interval} seconds")
-        self.log(f"   Monitoring folders: {', '.join(self.watch_folders)}")
+        self.log(f"   Monitoring local folders: {', '.join(self.watch_folders)}")
+        if self.google_drive_folders:
+            self.log(f"   Monitoring Google Drive folders: {len(self.google_drive_folders)}")
         self.log(f"   Mode: {'One-time' if run_once else 'Continuous'}")
         self.log("="*70)
         
@@ -281,12 +383,59 @@ class EnhancedAutoWatcher:
                             processed_count += 1
                             self.mark_file_processed(file_path)
                 
-                self.log(f"\n📊 Processing complete:")
+                self.log(f"\n📊 Local files processing complete:")
                 self.log(f"   Total processed: {processed_count}/{len(new_files)}")
                 self.log(f"   Matched: {matched_count}")
                 self.log(f"   Unmatched: {unmatched_count}")
             else:
-                self.log("✅ No new files found")
+                self.log("✅ No new local files found")
+            
+            # Check Google Drive for new files
+            if self.google_drive_folders:
+                new_drive_files = self.find_new_drive_files()
+                
+                if new_drive_files:
+                    self.log(f"\n☁️  Found {len(new_drive_files)} new Drive file(s) to process")
+                    
+                    drive_processed = 0
+                    drive_matched = 0
+                    drive_unmatched = 0
+                    
+                    for file_info in new_drive_files:
+                        # Download file
+                        local_path = self.download_drive_file(file_info)
+                        
+                        if local_path:
+                            # Process the downloaded file
+                            case_data = self.process_file(local_path)
+                            
+                            if case_data:
+                                # Determine which sheet to append to
+                                if case_data.get('match_status') == 'MATCHED':
+                                    sheet_name = 'Matched Cases'
+                                    drive_matched += 1
+                                else:
+                                    sheet_name = 'Unmatched Cases'
+                                    drive_unmatched += 1
+                                
+                                # Append to sheet
+                                if self.append_to_sheet(case_data, sheet_name):
+                                    drive_processed += 1
+                                    self.mark_drive_file_processed(file_info)
+                            
+                            # Clean up downloaded file
+                            try:
+                                os.remove(local_path)
+                                self.log(f"   🗑️  Cleaned up: {os.path.basename(local_path)}")
+                            except:
+                                pass
+                    
+                    self.log(f"\n📊 Drive files processing complete:")
+                    self.log(f"   Total processed: {drive_processed}/{len(new_drive_files)}")
+                    self.log(f"   Matched: {drive_matched}")
+                    self.log(f"   Unmatched: {drive_unmatched}")
+                else:
+                    self.log("✅ No new Drive files found")
             
             # Save state
             self.save_processed_state()
@@ -302,25 +451,29 @@ class EnhancedAutoWatcher:
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Enhanced Auto Watcher - Append to Existing Sheet')
+    parser = argparse.ArgumentParser(description='Enhanced Auto Watcher - Append to Existing Sheet with Google Drive Support')
     parser.add_argument('spreadsheet_id', help='Google Sheet ID to append to')
     parser.add_argument('--interval', type=int, default=300,
                         help='Check interval in seconds (default: 300)')
     parser.add_argument('--once', action='store_true',
                         help='Run once then exit (default: continuous)')
+    parser.add_argument('--drive-folders', nargs='+',
+                        help='Google Drive folder IDs to monitor (space-separated)')
     
     args = parser.parse_args()
     
     if not args.spreadsheet_id:
         print("❌ Error: Spreadsheet ID is required")
-        print("\nUsage: python3 enhanced_auto_watcher.py <spreadsheet_id>")
+        print("\nUsage: python3 enhanced_auto_watcher.py <spreadsheet_id> [--drive-folders FOLDER_ID1 FOLDER_ID2]")
         print("Example: python3 enhanced_auto_watcher.py 1abc123xyz456")
+        print("Example with Drive: python3 enhanced_auto_watcher.py 1abc123xyz456 --drive-folders 1CGl9pdVWqGssSS3ausbw88MoBWvS65zl")
         sys.exit(1)
     
     # Create watcher
     watcher = EnhancedAutoWatcher(
         spreadsheet_id=args.spreadsheet_id,
-        check_interval=args.interval
+        check_interval=args.interval,
+        google_drive_folders=args.drive_folders
     )
     
     try:
